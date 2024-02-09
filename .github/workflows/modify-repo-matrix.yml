@@ -124,6 +124,7 @@ jobs:
           for key in ${key_list};do restart_value=$(yq ".services.${key}.restart" ${{ vars.FG_COMPOSE_TARGET }});if [[ $restart_value == null ]];then echo "Adding restart to ${key}";yq -i ".services.${key}.restart = \"always\"" ${{ vars.FG_COMPOSE_TARGET }};fi;done
           # yq -i ".services.execute-migrate-all.restart = \"on-failure\"" ${{ vars.FG_COMPOSE_TARGET }}
           # MySQL
+          yq -i '.services.mysql.command = "--sort_buffer_size=20M"' ${{ vars.FG_COMPOSE_TARGET }}
           yq -i '.services.mysql.environment.MYSQL_ROOT_PASSWORD = "${MYSQL_ROOT_PASSWORD:-password}"' ${{ vars.FG_COMPOSE_TARGET }}
           yq -i '.services.mysql.environment.MYSQL_ROOT_HOST = "${MYSQL_ROOT_HOST:-%}"' ${{ vars.FG_COMPOSE_TARGET }}
           yq -i '.services.mysql.environment.OM_DATABASE = "${OM_DATABASE:-openmetadata_db}"' ${{ vars.FG_COMPOSE_TARGET }}
