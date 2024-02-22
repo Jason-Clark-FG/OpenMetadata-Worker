@@ -255,3 +255,10 @@ jobs:
     #     wait-for-processing: false
     #     # checkout_path: "self"
 
+    # Upload logs
+    - name: "Mend: Upload logss"
+      uses: actions/upload-artifact@v4
+      with:
+        name: mend_io_cn_scan_logs
+        path: ~/.mend/logs/cn/*.log
+
