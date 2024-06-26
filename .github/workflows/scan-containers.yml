@@ -19,7 +19,7 @@ env:
   IMAGE_TAG_1: "1.1.6"
   IMAGE_TAG_2: "7.16.3"
   SCAN_RETRIES: 4
-  REPORTS_OUT: true
+  REPORTS_OUT: false
 
 jobs:
   build:
@@ -47,8 +47,8 @@ jobs:
     # Show Info
     - name: "Show: Info"
       run: |
-        ls -laDR ${GITHUB_WORKSPACE} | grep ':$'
-        ls -laDR ~ | grep ':$'
+        ls -lDR ${GITHUB_WORKSPACE} | grep ':$'
+        # ls -laDR ~ | grep ':$'
         env | sort
 
     # Docker Buildx
@@ -58,8 +58,8 @@ jobs:
     # Show Info
     - name: "Show: Info"
       run: |
-        ls -laDR ${GITHUB_WORKSPACE}/../ | grep ':$'
-        ls -laDR ~ | grep ':$'
+        ls -lDR ${GITHUB_WORKSPACE}/../ | grep ':$'
+        # ls -laDR ~ | grep ':$'
         env | sort
 
     - name: "Mend: Scan Images"
@@ -70,13 +70,14 @@ jobs:
         # Install Mend
         curl -fsSL https://downloads.mend.io/cli/linux_amd64/mend -o /usr/local/bin/mend && chmod +x /usr/local/bin/mend
         mend version
-        ls -laDR ~ | grep ':$'
+        ls -laDR ~/.mend
         # Image 1 - DEV
         if [[ ${{ vars.DEV_RELEASE_BRANCH }} != ${{ vars.PROD_RELEASE_BRANCH }} ]];then
           for ((tries=1;tries <= ${{ env.SCAN_RETRIES }};tries++));do
             echo "Scanning ${{ env.IMAGE_REGISTRY_1 }}/${{ env.IMAGE_OWNER_1 }}/${{ env.IMAGE_NAME_1 }}:${{ vars.DEV_RELEASE_BRANCH }}"
             mend image ${{ env.IMAGE_REGISTRY_1 }}/${{ env.IMAGE_OWNER_1 }}/${{ env.IMAGE_NAME_1 }}:${{ vars.DEV_RELEASE_BRANCH }} --filename ./reports/${{ env.IMAGE_NAME_1 }}-${{ vars.DEV_RELEASE_BRANCH }}.sarif --format sarif --scope "*//:${{ vars.DEV_RELEASE_BRANCH }}" # --non-interactive
             RESULT=$?
+            ls -laDR ~/.mend
             find ~/.mend/logs/cn -type d -exec rm -rf {} \;
             (( $RESULT == 0 )) && break 1 || echo "Trying again ... "
           done
@@ -86,6 +87,7 @@ jobs:
           echo "Scanning ${{ env.IMAGE_REGISTRY_1 }}/${{ env.IMAGE_OWNER_1 }}/${{ env.IMAGE_NAME_1 }}:${{ vars.PROD_RELEASE_BRANCH }}"
           mend image ${{ env.IMAGE_REGISTRY_1 }}/${{ env.IMAGE_OWNER_1 }}/${{ env.IMAGE_NAME_1 }}:${{ vars.PROD_RELEASE_BRANCH }} --filename ./reports/${{ env.IMAGE_NAME_1 }}-${{ vars.PROD_RELEASE_BRANCH }}.sarif --format sarif --scope "*//:${{ vars.PROD_RELEASE_BRANCH }}" # --non-interactive
           RESULT=$?
+          ls -laDR ~/.mend
           find ~/.mend/logs/cn -type d -exec rm -rf {} \;
           (( $RESULT == 0 )) && break 1 || echo "Trying again ... "
         done
@@ -143,6 +145,7 @@ jobs:
         #   find ~/.mend/logs/cn -type d -exec rm -rf {} \;
         #   (( $RESULT == 0 )) && break 1 || echo "Trying again ... "
         # done
+        ls -laDR ~/.mend
       env:
         MEND_URL: ${{ vars.MEND_URL }}
         MEND_EMAIL: ${{ secrets.MEND_EMAIL }}
@@ -152,7 +155,8 @@ jobs:
     - name: "Show: Info"
       run: |
         ls -laR ${GITHUB_WORKSPACE}
-        ls -laDR ~ | grep ':$'
+        ls -laR ~/.mend/logs
+        # ls -laDR ~ | grep ':$'
 
     # # Ref: https://github.com/microsoft/sarif-actions
     # - name: SARIF Multitool 1
@@ -187,7 +191,12 @@ jobs:
       id: sarif-multitool-5
       uses: microsoft/sarif-actions@v0.1
       with:
-        command: merge ${GITHUB_WORKSPACE}/reports/*.sarif --recurse true --output-directory=${GITHUB_WORKSPACE}/reports/ --output-file=MendResults.sarif
+        command: merge ./reports/*.sarif --recurse true --output-directory=./reports/ --output-file=MendResults.sarif
+
+    # Show Info
+    - name: "Show: Info"
+      run: |
+        ls -laR ${GITHUB_WORKSPACE}/reports
 
     # Currently mend image outputs invalid SARIF, so we will skip this
     # Ref: https://docs.github.com/en/code-security/code-scanning/integrating-with-code-scanning/uploading-a-sarif-file-to-github#uploading-a-code-scanning-analysis-with-github-actions
