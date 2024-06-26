@@ -77,8 +77,7 @@ jobs:
             echo "Scanning ${{ env.IMAGE_REGISTRY_1 }}/${{ env.IMAGE_OWNER_1 }}/${{ env.IMAGE_NAME_1 }}:${{ vars.DEV_RELEASE_BRANCH }}"
             mend image ${{ env.IMAGE_REGISTRY_1 }}/${{ env.IMAGE_OWNER_1 }}/${{ env.IMAGE_NAME_1 }}:${{ vars.DEV_RELEASE_BRANCH }} --filename ./reports/${{ env.IMAGE_NAME_1 }}-${{ vars.DEV_RELEASE_BRANCH }}.sarif --format sarif --scope "*//:${{ vars.DEV_RELEASE_BRANCH }}" # --non-interactive
             RESULT=$?
-            ls -laDR ~/.mend
-            find ~/.mend/logs/cn -type d -exec rm -rf {} \;
+            ls -laR ~/.mend/logs;ls -laR /tmp
             (( $RESULT == 0 )) && break 1 || echo "Trying again ... "
           done
         fi
@@ -87,8 +86,7 @@ jobs:
           echo "Scanning ${{ env.IMAGE_REGISTRY_1 }}/${{ env.IMAGE_OWNER_1 }}/${{ env.IMAGE_NAME_1 }}:${{ vars.PROD_RELEASE_BRANCH }}"
           mend image ${{ env.IMAGE_REGISTRY_1 }}/${{ env.IMAGE_OWNER_1 }}/${{ env.IMAGE_NAME_1 }}:${{ vars.PROD_RELEASE_BRANCH }} --filename ./reports/${{ env.IMAGE_NAME_1 }}-${{ vars.PROD_RELEASE_BRANCH }}.sarif --format sarif --scope "*//:${{ vars.PROD_RELEASE_BRANCH }}" # --non-interactive
           RESULT=$?
-          ls -laDR ~/.mend
-          find ~/.mend/logs/cn -type d -exec rm -rf {} \;
+          ls -laR ~/.mend/logs;ls -laR /tmp
           (( $RESULT == 0 )) && break 1 || echo "Trying again ... "
         done
         # Image 2 - DEV
@@ -97,7 +95,7 @@ jobs:
             echo "Scanning ${{ env.IMAGE_REGISTRY_1 }}/${{ env.IMAGE_OWNER_1 }}/${{ env.IMAGE_NAME_3 }}:${{ vars.DEV_RELEASE_BRANCH }}"
             mend image ${{ env.IMAGE_REGISTRY_1 }}/${{ env.IMAGE_OWNER_1 }}/${{ env.IMAGE_NAME_3 }}:${{ vars.DEV_RELEASE_BRANCH }} --filename ./reports/${{ env.IMAGE_NAME_3 }}-${{ vars.DEV_RELEASE_BRANCH }}.sarif --format sarif --scope "*//:${{ vars.DEV_RELEASE_BRANCH }}" # --non-interactive
             RESULT=$?
-            find ~/.mend/logs/cn -type d -exec rm -rf {} \;
+            ls -laR ~/.mend/logs;ls -laR /tmp
             (( $RESULT == 0 )) && break 1 || echo "Trying again ... "
           done
         fi
@@ -106,7 +104,7 @@ jobs:
           echo "Scanning ${{ env.IMAGE_REGISTRY_1 }}/${{ env.IMAGE_OWNER_1 }}/${{ env.IMAGE_NAME_3 }}:${{ vars.PROD_RELEASE_BRANCH }}"
           mend image ${{ env.IMAGE_REGISTRY_1 }}/${{ env.IMAGE_OWNER_1 }}/${{ env.IMAGE_NAME_3 }}:${{ vars.PROD_RELEASE_BRANCH }} --filename ./reports/${{ env.IMAGE_NAME_3 }}-${{ vars.PROD_RELEASE_BRANCH }}.sarif --format sarif --scope "*//:${{ vars.PROD_RELEASE_BRANCH }}" # --non-interactive
           RESULT=$?
-          find ~/.mend/logs/cn -type d -exec rm -rf {} \;
+          ls -laR ~/.mend/logs;ls -laR /tmp
           (( $RESULT == 0 )) && break 1 || echo "Trying again ... "
         done
         # Image 3 - DEV
@@ -115,7 +113,7 @@ jobs:
             echo "Scanning ${{ env.IMAGE_REGISTRY_2 }}/${{ env.IMAGE_OWNER_2 }}/${{ env.IMAGE_NAME_4 }}:${{ vars.DEV_ES_RELEASE_BRANCH }}"
             mend image ${{ env.IMAGE_REGISTRY_2 }}/${{ env.IMAGE_OWNER_2 }}/${{ env.IMAGE_NAME_4 }}:${{ vars.DEV_ES_RELEASE_BRANCH }} --filename ./reports/${{ env.IMAGE_NAME_4 }}-${{ vars.DEV_RELEASE_BRANCH }}.sarif --format sarif --scope "*//:${{ vars.DEV_ES_RELEASE_BRANCH }}" # --non-interactive
             RESULT=$?
-            find ~/.mend/logs/cn -type d -exec rm -rf {} \;
+            ls -laR ~/.mend/logs;ls -laR /tmp
             (( $RESULT == 0 )) && break 1 || echo "Trying again ... "
           done
         fi
@@ -124,7 +122,7 @@ jobs:
           echo "Scanning ${{ env.IMAGE_REGISTRY_2 }}/${{ env.IMAGE_OWNER_2 }}/${{ env.IMAGE_NAME_4 }}:${{ vars.PROD_ES_RELEASE_BRANCH }}"
           mend image ${{ env.IMAGE_REGISTRY_2 }}/${{ env.IMAGE_OWNER_2 }}/${{ env.IMAGE_NAME_4 }}:${{ vars.PROD_ES_RELEASE_BRANCH }} --filename ./reports/${{ env.IMAGE_NAME_4 }}-${{ vars.PROD_RELEASE_BRANCH }}.sarif --format sarif --scope "*//:${{ vars.PROD_ES_RELEASE_BRANCH }}" # --non-interactive
           RESULT=$?
-          find ~/.mend/logs/cn -type d -exec rm -rf {} \;
+          ls -laR ~/.mend/logs;ls -laR /tmp
           (( $RESULT == 0 )) && break 1 || echo "Trying again ... "
         done
         # # Image 4 - DEV
@@ -133,7 +131,7 @@ jobs:
         #     echo "Scanning ${{ env.IMAGE_REGISTRY_1 }}/${{ env.IMAGE_OWNER_1 }}/${{ env.IMAGE_NAME_2 }}:${{ vars.DEV_RELEASE_BRANCH }}"
         #     mend image ${{ env.IMAGE_REGISTRY_1 }}/${{ env.IMAGE_OWNER_1 }}/${{ env.IMAGE_NAME_2 }}:${{ vars.DEV_RELEASE_BRANCH }} --filename ./reports/${{ env.IMAGE_NAME_2 }}-${{ vars.DEV_RELEASE_BRANCH }}.sarif --format sarif --scope "*//:${{ vars.DEV_RELEASE_BRANCH }}" # --non-interactive
         #     RESULT=$?
-        #     find ~/.mend/logs/cn -type d -exec rm -rf {} \;
+        #     ls -laR ~/.mend/logs;ls -laR /tmp
         #     (( $RESULT == 0 )) && break 1 || echo "Trying again ... "
         #   done
         # fi
@@ -142,10 +140,10 @@ jobs:
         #   echo "Scanning ${{ env.IMAGE_REGISTRY_1 }}/${{ env.IMAGE_OWNER_1 }}/${{ env.IMAGE_NAME_2 }}:${{ vars.PROD_RELEASE_BRANCH }}"
         #   mend image ${{ env.IMAGE_REGISTRY_1 }}/${{ env.IMAGE_OWNER_1 }}/${{ env.IMAGE_NAME_2 }}:${{ vars.PROD_RELEASE_BRANCH }} --filename ./reports/${{ env.IMAGE_NAME_2 }}-${{ vars.PROD_RELEASE_BRANCH }}.sarif --format sarif --scope "*//:${{ vars.PROD_RELEASE_BRANCH }}" # --non-interactive
         #   RESULT=$?
-        #   find ~/.mend/logs/cn -type d -exec rm -rf {} \;
+        #   ls -laR ~/.mend/logs;ls -laR /tmp
         #   (( $RESULT == 0 )) && break 1 || echo "Trying again ... "
         # done
-        ls -laDR ~/.mend
+        ls -laR ~/.mend/logs;ls -laR /tmp
       env:
         MEND_URL: ${{ vars.MEND_URL }}
         MEND_EMAIL: ${{ secrets.MEND_EMAIL }}
@@ -156,6 +154,7 @@ jobs:
       run: |
         ls -laR ${GITHUB_WORKSPACE}
         ls -laR ~/.mend/logs
+        ls -laR /tmp
         # ls -laDR ~ | grep ':$'
 
     # # Ref: https://github.com/microsoft/sarif-actions
