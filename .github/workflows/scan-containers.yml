@@ -181,15 +181,15 @@ jobs:
 
     # Currently mend image outputs invalid SARIF, so we will skip this
     # Ref: https://docs.github.com/en/code-security/code-scanning/integrating-with-code-scanning/uploading-a-sarif-file-to-github#uploading-a-code-scanning-analysis-with-github-actions
-    - name: "Mend: Upload SARIF results"
-      id: upload-sarif-all
-      if: ${{ github.event_name != 'pull_request_target' && env.REPORTS_OUT == 'true' }}
-      uses: github/codeql-action/upload-sarif@v3
-      with:
-        # category: mend-sca
-        sarif_file: './reports'
-        wait-for-processing: false
-        # checkout_path: "self"
+    # - name: "Mend: Upload SARIF results"
+    #   id: upload-sarif-all
+    #   if: ${{ github.event_name != 'pull_request_target' && env.REPORTS_OUT == 'true' }}
+    #   uses: github/codeql-action/upload-sarif@v3
+    #   with:
+    #     # category: mend-sca
+    #     sarif_file: './reports'
+    #     wait-for-processing: false
+    #     # checkout_path: "self"
     # - name: "Mend: Upload SARIF result 1d"
     #   id: upload-sarif-1d
     #   if: ${{ github.event_name != 'pull_request_target' && env.REPORTS_OUT == 'true' }}
