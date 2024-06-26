@@ -19,7 +19,7 @@ env:
   IMAGE_TAG_1: "1.1.6"
   IMAGE_TAG_2: "7.16.3"
   SCAN_RETRIES: 4
-  REPORTS_OUT: false
+  REPORTS_OUT: true
 
 jobs:
   build:
@@ -47,7 +47,8 @@ jobs:
     # Show Info
     - name: "Show: Info"
       run: |
-        ls -lDR ${GITHUB_WORKSPACE} | grep ':$'
+        ls -laDR ${GITHUB_WORKSPACE} | grep ':$'
+        ls -laDR ~ | grep ':$'
         env | sort
 
     # Docker Buildx
@@ -57,7 +58,8 @@ jobs:
     # Show Info
     - name: "Show: Info"
       run: |
-        ls -lDR ${GITHUB_WORKSPACE}/../ | grep ':$'
+        ls -laDR ${GITHUB_WORKSPACE}/../ | grep ':$'
+        ls -laDR ~ | grep ':$'
         env | sort
 
     - name: "Mend: Scan Images"
@@ -68,6 +70,7 @@ jobs:
         # Install Mend
         curl -fsSL https://downloads.mend.io/cli/linux_amd64/mend -o /usr/local/bin/mend && chmod +x /usr/local/bin/mend
         mend version
+        ls -laDR ~ | grep ':$'
         # Image 1 - DEV
         if [[ ${{ vars.DEV_RELEASE_BRANCH }} != ${{ vars.PROD_RELEASE_BRANCH }} ]];then
           for ((tries=1;tries <= ${{ env.SCAN_RETRIES }};tries++));do
@@ -148,7 +151,8 @@ jobs:
     # Show Info
     - name: "Show: Info"
       run: |
-        ls -lR ${GITHUB_WORKSPACE}
+        ls -laR ${GITHUB_WORKSPACE}
+        ls -laDR ~ | grep ':$'
 
     # # Ref: https://github.com/microsoft/sarif-actions
     # - name: SARIF Multitool 1
@@ -178,6 +182,12 @@ jobs:
     #   with:
     #     # Command to be sent to SARIF Multitool
     #     command: 'validate ${GITHUB_WORKSPACE}/reports/${{ env.IMAGE_NAME_4 }}.sarif'
+    # Ref:
+    - name: SARIF Multitool 5
+      id: sarif-multitool-5
+      uses: microsoft/sarif-actions@v0.1
+      with:
+        command: merge ${GITHUB_WORKSPACE}/reports/*.sarif --recurse true --output-directory=${GITHUB_WORKSPACE}/reports/ --output-file=MendResults.sarif
 
     # Currently mend image outputs invalid SARIF, so we will skip this
     # Ref: https://docs.github.com/en/code-security/code-scanning/integrating-with-code-scanning/uploading-a-sarif-file-to-github#uploading-a-code-scanning-analysis-with-github-actions
@@ -187,7 +197,7 @@ jobs:
       uses: github/codeql-action/upload-sarif@v3
       with:
         # category: mend-sca
-        sarif_file: './reports'
+        sarif_file: './reports/MendResults.sarif'
         wait-for-processing: false
         # checkout_path: "self"
     # - name: "Mend: Upload SARIF result 1d"
