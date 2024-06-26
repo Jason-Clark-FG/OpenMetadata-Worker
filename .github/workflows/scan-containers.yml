@@ -49,6 +49,7 @@ jobs:
       run: |
         ls -lDR ${GITHUB_WORKSPACE} | grep ':$'
         # ls -laDR ~ | grep ':$'
+        df -h
         env | sort
 
     # Docker Buildx
@@ -60,6 +61,7 @@ jobs:
       run: |
         ls -lDR ${GITHUB_WORKSPACE}/../ | grep ':$'
         # ls -laDR ~ | grep ':$'
+        df -h
         env | sort
 
     - name: "Mend: Scan Images"
@@ -71,6 +73,7 @@ jobs:
         curl -fsSL https://downloads.mend.io/cli/linux_amd64/mend -o /usr/local/bin/mend && chmod +x /usr/local/bin/mend
         mend version
         ls -laDR ~/.mend
+        df -h
         # Image 1 - DEV
         if [[ ${{ vars.DEV_RELEASE_BRANCH }} != ${{ vars.PROD_RELEASE_BRANCH }} ]];then
           for ((tries=1;tries <= ${{ env.SCAN_RETRIES }};tries++));do
@@ -289,6 +292,12 @@ jobs:
     #     sarif_file: './reports/${{ env.IMAGE_NAME_4 }}-${{ vars.PROD_RELEASE_BRANCH }}.sarif'
     #     wait-for-processing: false
     #     # checkout_path: "self"
+
+    # Show Info
+    - name: "Show: Info"
+      run: |
+        ls -laR ~/.mend/logs/cn
+        df -h
 
     # Upload logs
     - name: "Mend: Upload logs"
