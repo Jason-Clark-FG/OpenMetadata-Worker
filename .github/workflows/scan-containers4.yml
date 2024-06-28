@@ -1,4 +1,4 @@
-name: "Worker: Step 4.1 - Scan Containers"
+name: "Worker: Step 4.1.4 - Scan Containers"
 
 on:
   workflow_run:
@@ -74,86 +74,26 @@ jobs:
         mend version
         ls -laR ~/.mend
         df -h
-        # Image 1 - DEV
+        # Image 4 - DEV
         if [[ ${{ vars.DEV_RELEASE_BRANCH }} != ${{ vars.PROD_RELEASE_BRANCH }} ]];then
           for ((tries=1;tries <= ${{ env.SCAN_RETRIES }};tries++));do
-            echo "Scanning ${{ env.IMAGE_REGISTRY_1 }}/${{ env.IMAGE_OWNER_1 }}/${{ env.IMAGE_NAME_1 }}:${{ vars.DEV_RELEASE_BRANCH }}"
-            mend image ${{ env.IMAGE_REGISTRY_1 }}/${{ env.IMAGE_OWNER_1 }}/${{ env.IMAGE_NAME_1 }}:${{ vars.DEV_RELEASE_BRANCH }} --filename ./reports/${{ env.IMAGE_NAME_1 }}-${{ vars.DEV_RELEASE_BRANCH }}.sarif --format sarif --scope "*//:${{ vars.DEV_RELEASE_BRANCH }}" # --non-interactive
+            echo "Scanning ${{ env.IMAGE_REGISTRY_1 }}/${{ env.IMAGE_OWNER_1 }}/${{ env.IMAGE_NAME_2 }}:${{ vars.DEV_RELEASE_BRANCH }}"
+            mend image ${{ env.IMAGE_REGISTRY_1 }}/${{ env.IMAGE_OWNER_1 }}/${{ env.IMAGE_NAME_2 }}:${{ vars.DEV_RELEASE_BRANCH }} --filename ./reports/${{ env.IMAGE_NAME_2 }}-${{ vars.DEV_RELEASE_BRANCH }}.sarif --format sarif --scope "*//:${{ vars.DEV_RELEASE_BRANCH }}" # --non-interactive
             RESULT=$?
             ls -laR ~/.mend/logs
             df -h
             (( $RESULT == 0 )) && break 1 || echo "Trying again ... "
           done
         fi
-        # Image 1 - PRD
+        # Image 4 - PRD
         for ((tries=1;tries <= ${{ env.SCAN_RETRIES }};tries++));do
-          echo "Scanning ${{ env.IMAGE_REGISTRY_1 }}/${{ env.IMAGE_OWNER_1 }}/${{ env.IMAGE_NAME_1 }}:${{ vars.PROD_RELEASE_BRANCH }}"
-          mend image ${{ env.IMAGE_REGISTRY_1 }}/${{ env.IMAGE_OWNER_1 }}/${{ env.IMAGE_NAME_1 }}:${{ vars.PROD_RELEASE_BRANCH }} --filename ./reports/${{ env.IMAGE_NAME_1 }}-${{ vars.PROD_RELEASE_BRANCH }}.sarif --format sarif --scope "*//:${{ vars.PROD_RELEASE_BRANCH }}" # --non-interactive
+          echo "Scanning ${{ env.IMAGE_REGISTRY_1 }}/${{ env.IMAGE_OWNER_1 }}/${{ env.IMAGE_NAME_2 }}:${{ vars.PROD_RELEASE_BRANCH }}"
+          mend image ${{ env.IMAGE_REGISTRY_1 }}/${{ env.IMAGE_OWNER_1 }}/${{ env.IMAGE_NAME_2 }}:${{ vars.PROD_RELEASE_BRANCH }} --filename ./reports/${{ env.IMAGE_NAME_2 }}-${{ vars.PROD_RELEASE_BRANCH }}.sarif --format sarif --scope "*//:${{ vars.PROD_RELEASE_BRANCH }}" # --non-interactive
           RESULT=$?
           ls -laR ~/.mend/logs
           df -h
           (( $RESULT == 0 )) && break 1 || echo "Trying again ... "
         done
-        # Image 2 - DEV
-        if [[ ${{ vars.DEV_RELEASE_BRANCH }} != ${{ vars.PROD_RELEASE_BRANCH }} ]];then
-          for ((tries=1;tries <= ${{ env.SCAN_RETRIES }};tries++));do
-            echo "Scanning ${{ env.IMAGE_REGISTRY_1 }}/${{ env.IMAGE_OWNER_1 }}/${{ env.IMAGE_NAME_3 }}:${{ vars.DEV_RELEASE_BRANCH }}"
-            mend image ${{ env.IMAGE_REGISTRY_1 }}/${{ env.IMAGE_OWNER_1 }}/${{ env.IMAGE_NAME_3 }}:${{ vars.DEV_RELEASE_BRANCH }} --filename ./reports/${{ env.IMAGE_NAME_3 }}-${{ vars.DEV_RELEASE_BRANCH }}.sarif --format sarif --scope "*//:${{ vars.DEV_RELEASE_BRANCH }}" # --non-interactive
-            RESULT=$?
-            ls -laR ~/.mend/logs
-            df -h
-            (( $RESULT == 0 )) && break 1 || echo "Trying again ... "
-          done
-        fi
-        # Image 2 - PRD
-        for ((tries=1;tries <= ${{ env.SCAN_RETRIES }};tries++));do
-          echo "Scanning ${{ env.IMAGE_REGISTRY_1 }}/${{ env.IMAGE_OWNER_1 }}/${{ env.IMAGE_NAME_3 }}:${{ vars.PROD_RELEASE_BRANCH }}"
-          mend image ${{ env.IMAGE_REGISTRY_1 }}/${{ env.IMAGE_OWNER_1 }}/${{ env.IMAGE_NAME_3 }}:${{ vars.PROD_RELEASE_BRANCH }} --filename ./reports/${{ env.IMAGE_NAME_3 }}-${{ vars.PROD_RELEASE_BRANCH }}.sarif --format sarif --scope "*//:${{ vars.PROD_RELEASE_BRANCH }}" # --non-interactive
-          RESULT=$?
-          ls -laR ~/.mend/logs
-          df -h
-          (( $RESULT == 0 )) && break 1 || echo "Trying again ... "
-        done
-        # Image 3 - DEV
-        if [[ ${{ vars.DEV_ES_RELEASE_BRANCH }} != ${{ vars.PROD_ES_RELEASE_BRANCH }} ]];then
-          for ((tries=1;tries <= ${{ env.SCAN_RETRIES }};tries++));do
-            echo "Scanning ${{ env.IMAGE_REGISTRY_2 }}/${{ env.IMAGE_OWNER_2 }}/${{ env.IMAGE_NAME_4 }}:${{ vars.DEV_ES_RELEASE_BRANCH }}"
-            mend image ${{ env.IMAGE_REGISTRY_2 }}/${{ env.IMAGE_OWNER_2 }}/${{ env.IMAGE_NAME_4 }}:${{ vars.DEV_ES_RELEASE_BRANCH }} --filename ./reports/${{ env.IMAGE_NAME_4 }}-${{ vars.DEV_RELEASE_BRANCH }}.sarif --format sarif --scope "*//:${{ vars.DEV_ES_RELEASE_BRANCH }}" # --non-interactive
-            RESULT=$?
-            ls -laR ~/.mend/logs
-            df -h
-            (( $RESULT == 0 )) && break 1 || echo "Trying again ... "
-          done
-        fi
-        # Image 3 -PRD
-        for ((tries=1;tries <= ${{ env.SCAN_RETRIES }};tries++));do
-          echo "Scanning ${{ env.IMAGE_REGISTRY_2 }}/${{ env.IMAGE_OWNER_2 }}/${{ env.IMAGE_NAME_4 }}:${{ vars.PROD_ES_RELEASE_BRANCH }}"
-          mend image ${{ env.IMAGE_REGISTRY_2 }}/${{ env.IMAGE_OWNER_2 }}/${{ env.IMAGE_NAME_4 }}:${{ vars.PROD_ES_RELEASE_BRANCH }} --filename ./reports/${{ env.IMAGE_NAME_4 }}-${{ vars.PROD_RELEASE_BRANCH }}.sarif --format sarif --scope "*//:${{ vars.PROD_ES_RELEASE_BRANCH }}" # --non-interactive
-          RESULT=$?
-          ls -laR ~/.mend/logs
-          df -h
-          (( $RESULT == 0 )) && break 1 || echo "Trying again ... "
-        done
-        # # Image 4 - DEV
-        # if [[ ${{ vars.DEV_RELEASE_BRANCH }} != ${{ vars.PROD_RELEASE_BRANCH }} ]];then
-        #   for ((tries=1;tries <= ${{ env.SCAN_RETRIES }};tries++));do
-        #     echo "Scanning ${{ env.IMAGE_REGISTRY_1 }}/${{ env.IMAGE_OWNER_1 }}/${{ env.IMAGE_NAME_2 }}:${{ vars.DEV_RELEASE_BRANCH }}"
-        #     mend image ${{ env.IMAGE_REGISTRY_1 }}/${{ env.IMAGE_OWNER_1 }}/${{ env.IMAGE_NAME_2 }}:${{ vars.DEV_RELEASE_BRANCH }} --filename ./reports/${{ env.IMAGE_NAME_2 }}-${{ vars.DEV_RELEASE_BRANCH }}.sarif --format sarif --scope "*//:${{ vars.DEV_RELEASE_BRANCH }}" # --non-interactive
-        #     RESULT=$?
-        #     ls -laR ~/.mend/logs
-        #     df -h
-        #     (( $RESULT == 0 )) && break 1 || echo "Trying again ... "
-        #   done
-        # fi
-        # # Image 4 - PRD
-        # for ((tries=1;tries <= ${{ env.SCAN_RETRIES }};tries++));do
-        #   echo "Scanning ${{ env.IMAGE_REGISTRY_1 }}/${{ env.IMAGE_OWNER_1 }}/${{ env.IMAGE_NAME_2 }}:${{ vars.PROD_RELEASE_BRANCH }}"
-        #   mend image ${{ env.IMAGE_REGISTRY_1 }}/${{ env.IMAGE_OWNER_1 }}/${{ env.IMAGE_NAME_2 }}:${{ vars.PROD_RELEASE_BRANCH }} --filename ./reports/${{ env.IMAGE_NAME_2 }}-${{ vars.PROD_RELEASE_BRANCH }}.sarif --format sarif --scope "*//:${{ vars.PROD_RELEASE_BRANCH }}" # --non-interactive
-        #   RESULT=$?
-        #   ls -laR ~/.mend/logs
-        #   df -h
-        #   (( $RESULT == 0 )) && break 1 || echo "Trying again ... "
-        # done
         ls -laR ~/.mend/logs
         df -h
       env:
