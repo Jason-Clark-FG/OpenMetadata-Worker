@@ -160,6 +160,7 @@ jobs:
         MEND_URL: ${{ vars.MEND_URL }}
         MEND_EMAIL: ${{ secrets.MEND_EMAIL }}
         MEND_USER_KEY: ${{ secrets.MEND_USER_KEY }}
+        MEND_LOG_LEVEL: DEBUG
 
     # Show Info
     - name: "Show: Info"
