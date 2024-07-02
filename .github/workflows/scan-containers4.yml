@@ -23,7 +23,7 @@ env:
 
 jobs:
   build:
-    runs-on: ubuntu-latest
+    runs-on: srv-builder-1
     if: ${{ github.event.workflow_run.conclusion == 'success' || github.event_name == 'workflow_dispatch' }}
     permissions:
       security-events: write
@@ -84,6 +84,7 @@ jobs:
             df -h
             (( $RESULT == 0 )) && break 1 || echo "Trying again ... "
           done
+          sleep 30
         fi
         # Image 4 - PRD
         for ((tries=1;tries <= ${{ env.SCAN_RETRIES }};tries++));do
@@ -94,6 +95,7 @@ jobs:
           df -h
           (( $RESULT == 0 )) && break 1 || echo "Trying again ... "
         done
+        sleep 30
         ls -laR ~/.mend/logs
         df -h
       env:
