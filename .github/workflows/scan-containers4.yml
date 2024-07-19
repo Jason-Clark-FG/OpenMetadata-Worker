@@ -75,7 +75,7 @@ jobs:
         ls -laR ~/.mend
         df -h
         # Image 4 - LATEST
-        if [[ ${{ vars.OM_LATEST_RELEASE }} != ${{ vars.DEV_RELEASE_BRANCH }} && ${{ vars.DEV_RELEASE_BRANCH }} != ${{ vars.PROD_RELEASE_BRANCH }} ]];then
+        if [[ ${{ vars.OM_LATEST_RELEASE }} != ${{ vars.DEV_RELEASE_BRANCH }} ]];then
           for ((tries=1;tries <= ${{ env.SCAN_RETRIES }};tries++));do
             echo "Scanning ${{ env.IMAGE_REGISTRY_1 }}/${{ env.IMAGE_OWNER_1 }}/${{ env.IMAGE_NAME_2 }}:${{ vars.OM_LATEST_RELEASE }}"
             mend image ${{ env.IMAGE_REGISTRY_1 }}/${{ env.IMAGE_OWNER_1 }}/${{ env.IMAGE_NAME_2 }}:${{ vars.OM_LATEST_RELEASE }} --filename ./reports/${{ env.IMAGE_NAME_2 }}-${{ vars.OM_LATEST_RELEASE }}.sarif --format sarif --scope "*//:${{ vars.OM_LATEST_RELEASE }}" # --non-interactive
