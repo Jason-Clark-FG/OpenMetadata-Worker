@@ -17,6 +17,7 @@ jobs:
       - env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
+          echo "GITHUB_REPOSITORY: ${GITHUB_REPOSITORY}"
           LATEST_VERSION=$(curl -fSsL -X GET https://api.github.com/repos/open-metadata/OpenMetadata/releases/latest | jq -r '.target_commitish')
           echo "LATEST_VERSION: ${LATEST_VERSION}"
           echo "Ouputting Action Variables:"
