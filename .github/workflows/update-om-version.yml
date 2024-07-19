@@ -8,7 +8,7 @@ on:
 jobs:
   update_latest:
     runs-on: ubuntu-latest
-    permissions: {}
+    permissions: write-all
     steps:
       - env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
