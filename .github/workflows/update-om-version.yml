@@ -1,0 +1,22 @@
+name: "Worker: Update Dev Version"
+
+on:
+  workflow_dispatch:
+  schedule:
+    - cron: '0 1 * * 6'
+
+jobs:
+  update_latest:
+    runs-on: ubuntu-latest
+    permissions:
+      security-events: write
+      actions: write
+      contents: read
+      packages: write
+    steps:
+      - env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          LATEST_VERSION=$(curl -fSsL https://api.github.com/repos/open-metadata/OpenMetadata/releases/latest | jq -r '.target_commitish')
+          curl -fSsL -X PATCH -H "Accept: application/vnd.github+json" -H "Authorization: Bearer ${GH_TOKEN}" -H "X-GitHub-Api-Version: 2022-11-28" https://api.github.com/repos/Jason-Clark-FG/OpenMetadata-Worker/actions/variables/OM_LATEST_VERSION -d "{\"name\":\"OM_LATEST_VERSION\",\"value\":\"${LATEST_VERSION}\"}"
+
