@@ -3,7 +3,7 @@ name: "Worker: Step 0 - Update Latest Version"
 on:
   workflow_dispatch:
   schedule:
-    - cron: "0 1 * * 6"
+    - cron: "55 23 * * 0"
 
 jobs:
   update_latest:
@@ -21,3 +21,4 @@ jobs:
               echo "Updating OM_LATEST_RELEASE variable value to ${LATEST_RELEASE}"
               curl -fSsL -X PATCH -H "Accept: application/vnd.github+json" -H "Authorization: token ${{ env.MY_TOKEN }}" -H "X-GitHub-Api-Version: 2022-11-28" https://api.github.com/repos/${GITHUB_REPOSITORY}/actions/variables/OM_LATEST_RELEASE -d "{\"name\":\"OM_LATEST_RELEASE\",\"value\":\"${LATEST_RELEASE}\"}"
           fi
+
