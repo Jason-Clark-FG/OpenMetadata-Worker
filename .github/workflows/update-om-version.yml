@@ -3,7 +3,7 @@ name: "Worker: Step 0 - Update Latest Version"
 on:
   workflow_dispatch:
   schedule:
-    - cron: "55 23 * * 0"
+    - cron: "55 23 * * 0,2,4"
 
 jobs:
   update_latest:
