@@ -2,6 +2,9 @@ name: "Worker: Step 0 - Update Latest Version"
 
 on:
   workflow_dispatch:
+  push:
+    branches:
+    - '**'
   schedule:
     - cron: '30 11 * * 1,3,5'
 
