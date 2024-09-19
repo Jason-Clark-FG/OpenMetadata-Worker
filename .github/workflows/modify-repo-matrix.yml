@@ -126,6 +126,7 @@ jobs:
           for key in ${key_list};do restart_value=$(yq ".services.${key}.restart" ${{ vars.FG_COMPOSE_TARGET }});if [[ $restart_value == null ]];then echo "Adding restart to ${key}";yq -i ".services.${key}.restart = \"always\"" ${{ vars.FG_COMPOSE_TARGET }};fi;done
           # yq -i ".services.execute-migrate-all.restart = \"on-failure\"" ${{ vars.FG_COMPOSE_TARGET }}
           # MySQL
+          ## Ref: https://dev.mysql.com/doc/refman/8.0/en/docker-mysql-more-topics.html#docker_var_mysql-root-host
           yq -i '.services.mysql.command = "--sort_buffer_size=20M"' ${{ vars.FG_COMPOSE_TARGET }}
           yq -i '.services.mysql.environment.MYSQL_ROOT_PASSWORD = "${MYSQL_ROOT_PASSWORD:-password}"' ${{ vars.FG_COMPOSE_TARGET }}
           yq -i '.services.mysql.environment.MYSQL_ROOT_HOST = "${MYSQL_ROOT_HOST:-%}"' ${{ vars.FG_COMPOSE_TARGET }}
@@ -141,18 +142,20 @@ jobs:
           # Incorporate healthcheck fix (no longer necessary from version 1.1.1 onward)
           # yq -i '.services.openmetadata-server.healthcheck.test = ["CMD", "wget", "-q", "--spider", "http://localhost:8586/healthcheck"]' ${{ vars.FG_COMPOSE_TARGET }}
           # Add Airflow Settings
+          ## Sep 19 2024: Now pymssql is installed by default, so we do not need to override the entrypoint command
           yq -i '.services.ingestion.environment.AIRFLOW_ADMIN_USER = "${AIRFLOW_ADMIN_USER:-admin}" | .services.ingestion.environment.AIRFLOW_ADMIN_PASSWORD = "${AIRFLOW_ADMIN_PASSWORD:-admin}"' ${{ vars.FG_COMPOSE_TARGET }}
           # Ingestion
-          yq -i '.services.ingestion.volumes += "./docker-volume/ingestion-entrypoint:/opt/airflow/entrypoint"' ${{ vars.FG_COMPOSE_TARGET }}
+          # yq -i '.services.ingestion.volumes += "./docker-volume/ingestion-entrypoint:/opt/airflow/entrypoint"' ${{ vars.FG_COMPOSE_TARGET }}
           yq -i '.services.ingestion.volumes += "./docker-volume/logs/ingestion:/opt/airflow/logs"' ${{ vars.FG_COMPOSE_TARGET }}
-          yq -i '.services.ingestion.command[0] |= "/opt/airflow/entrypoint/entrypoint.sh"' ${{ vars.FG_COMPOSE_TARGET }}
+          # yq -i '.services.ingestion.command[0] |= "/opt/airflow/entrypoint/entrypoint.sh"' ${{ vars.FG_COMPOSE_TARGET }}
           yq -i 'with(.services.ingestion.environment.AIRFLOW__DATABASE__SQL_ALCHEMY_CONN ; . = "$${DB_SCHEME}://$${DB_USER}:$${DB_PASSWORD}@$${DB_HOST}:$${DB_PORT}/$${AIRFLOW_DB}$${DB_PROPERTIES}" | . style="double")' ${{ vars.FG_COMPOSE_TARGET }}
           # yq -i 'with(.services.ingestion.healthcheck ; .test = "curl -fsu $${AIRFLOW_ADMIN_USER}:$${AIRFLOW_ADMIN_PASSWORD} http://localhost:8080/health || exit 1" | .interval = "30s" | .timeout = "10s" | .retries = 5 | .start_period = "30s")' ${{ vars.FG_COMPOSE_TARGET }}
           yq -i '.services.ingestion.healthcheck.test = "airflow jobs check --job-type SchedulerJob --local || exit 1"' ${{ vars.FG_COMPOSE_TARGET }}
           # yq -i '.services.ingestion.healthcheck.test = "airflow jobs check --local || exit 1"' ${{ vars.FG_COMPOSE_TARGET }}
           # yq -i 'with(.services.ingestion.healthcheck.test; . = ["CMD", "airflow", "jobs", "check", "--local"] | . style="flow")' ${{ vars.FG_COMPOSE_TARGET }}
           # Elasticsearch
-          yq -i '.services.elasticsearch.image |= sub("[0-9]\..*", "${{ matrix.target.es_release_branch }}")' ${{ vars.FG_COMPOSE_TARGET }}
+          ## Sep 19 2024: We no longer need to override the ES container version
+          # yq -i '.services.elasticsearch.image |= sub("[0-9]\..*", "${{ matrix.target.es_release_branch }}")' ${{ vars.FG_COMPOSE_TARGET }}
           es_xpack_security=$(yq '.services.elasticsearch.environment.[] | select(. == "xpack.security.enabled=*")' ${{ vars.FG_COMPOSE_TARGET }})
           if [[ -n $es_xpack_security ]];then
             yq -i '(.services.elasticsearch.environment.[] | select(. == "xpack.security.enabled=*")) |= "xpack.security.enabled=false"' ${{ vars.FG_COMPOSE_TARGET }}
@@ -171,7 +174,7 @@ jobs:
           else
             yq -i '.services.elasticsearch.environment += ["KEYSTORE_PASSWORD=${KEYSTORE_PASSWORD:-}"]' ${{ vars.FG_COMPOSE_TARGET }}
           fi
-          yq -i 'with(.services.elasticsearch.healthcheck ; .test = "curl --silent --user elastic:$${ELASTIC_PASSWORD} \"http://localhost:9200/_cluster/health?wait_for_status=yellow&timeout=15s\" || exit 1" | .interval = "30s" | .timeout = "10s" | .retries = 5)' ${{ vars.FG_COMPOSE_TARGET }}
+          yq -i 'with(.services.elasticsearch.healthcheck ; .test = "curl --silent --user elastic:$${ELASTIC_PASSWORD} \"http://localhost:9200/_cluster/health?wait_for_status=yellow&timeout=15s\" || exit 1" | .interval = "15s" | .timeout = "10s" | .retries = 10)' ${{ vars.FG_COMPOSE_TARGET }}
           key_list=$(yq '.services | keys' ${{ vars.FG_COMPOSE_TARGET }} | cut -c '3-' | grep -v execute-migrate-all)
           for key in ${key_list};do condition_value=$(yq ".services.${key}.depends_on.elasticsearch.condition" ${{ vars.FG_COMPOSE_TARGET }});if [[ $condition_value == service_started ]];then echo "Updating service_started to service_healthy in ${key}";yq -i ".services.${key}.depends_on.elasticsearch.condition = \"service_healthy\"" ${{ vars.FG_COMPOSE_TARGET }};fi;done
           yq -i '.services.elasticsearch.volumes += "./docker-volume/logs/elasticsearch:/usr/share/elasticsearch/logs"' ${{ vars.FG_COMPOSE_TARGET }}
