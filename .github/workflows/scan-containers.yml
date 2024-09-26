@@ -75,7 +75,7 @@ jobs:
         ls -laR ~/.mend
         df -h
         # Image 1 - LATEST
-        if [[ ${{ vars.OM_LATEST_RELEASE }} != ${{ vars.DEV_RELEASE_BRANCH }} && ${{ vars.DEV_RELEASE_BRANCH }} != ${{ vars.PROD_RELEASE_BRANCH }} ]];then
+        if [[ ${{ vars.OM_LATEST_RELEASE }} != ${{ vars.DEV_RELEASE_BRANCH }} && ${{ vars.OM_LATEST_RELEASE }} != ${{ vars.PROD_RELEASE_BRANCH }} ]];then
           for ((tries=1;tries <= ${{ env.SCAN_RETRIES }};tries++));do
             echo "Scanning ${{ env.IMAGE_REGISTRY_1 }}/${{ env.IMAGE_OWNER_1 }}/${{ env.IMAGE_NAME_1 }}:${{ vars.OM_LATEST_RELEASE }}"
             mend image ${{ env.IMAGE_REGISTRY_1 }}/${{ env.IMAGE_OWNER_1 }}/${{ env.IMAGE_NAME_1 }}:${{ vars.OM_LATEST_RELEASE }} --filename ./reports/${{ env.IMAGE_NAME_1 }}-${{ vars.OM_LATEST_RELEASE }}.sarif --format sarif --scope "*//DataCatalogue//*" # --non-interactive
@@ -106,7 +106,7 @@ jobs:
           (( $RESULT == 0 )) && break 1 || echo "Trying again ... "
         done
         # Image 2 - LATEST
-        if [[ ${{ vars.OM_LATEST_RELEASE }} != ${{ vars.DEV_RELEASE_BRANCH }} && ${{ vars.DEV_RELEASE_BRANCH }} != ${{ vars.PROD_RELEASE_BRANCH }} ]];then
+        if [[ ${{ vars.OM_LATEST_RELEASE }} != ${{ vars.DEV_RELEASE_BRANCH }} && ${{ vars.OM_LATEST_RELEASE }} != ${{ vars.PROD_RELEASE_BRANCH }} ]];then
           for ((tries=1;tries <= ${{ env.SCAN_RETRIES }};tries++));do
             echo "Scanning ${{ env.IMAGE_REGISTRY_1 }}/${{ env.IMAGE_OWNER_1 }}/${{ env.IMAGE_NAME_3 }}:${{ vars.OM_LATEST_RELEASE }}"
             mend image ${{ env.IMAGE_REGISTRY_1 }}/${{ env.IMAGE_OWNER_1 }}/${{ env.IMAGE_NAME_3 }}:${{ vars.OM_LATEST_RELEASE }} --filename ./reports/${{ env.IMAGE_NAME_3 }}-${{ vars.OM_LATEST_RELEASE }}.sarif --format sarif --scope "*//DataCatalogue//*" # --non-interactive
