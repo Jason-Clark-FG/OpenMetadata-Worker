@@ -66,6 +66,7 @@ jobs:
       contents: read
       packages: write
     strategy:
+      max-parallel: 1
       matrix: ${{ fromJSON(needs.matrix.outputs.matrix) }}
 
     steps:

@@ -64,6 +64,7 @@ jobs:
       packages: write
       id-token: write
     strategy:
+      max-parallel: 1
       matrix: ${{ fromJSON(needs.matrix.outputs.matrix) }}
 
     steps:
