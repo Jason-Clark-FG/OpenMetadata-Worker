@@ -125,6 +125,20 @@ jobs:
         sed -i -e '${{ env.IMAGE_HEALTHCHECK_INSERT }}' ${{ env.IMAGE_FILE }}
         cat ${{ env.IMAGE_FILE }}
 
+    - name: Install Ubuntu dependencies
+      shell: bash
+      run: |
+        sudo DEBIAN_FRONTEND=noninteractive apt-get --assume-yes -o DPkg::Lock::Timeout=300 install python3-venv
+
+    - name: Install open-metadata dependencies
+      shell: bash
+      run: |
+        python3 -m venv env
+        source env/bin/activate
+        pip --disable-pip-version-check install --no-warn-script-location --progress-bar=off --upgrade pip
+        sudo make install_antlr_cli
+        make install_dev generate
+
     # Build and push Docker image with Buildx (don't push on PR)
     # https://github.com/docker/build-push-action
     - name: Build and push Docker image
