@@ -25,9 +25,13 @@ jobs:
   create:
     uses: Jason-Clark-FG/azure-github-runner/.github/workflows/create.yml@main
     with:
+      RESOURCE_GROUP_NAME: "rg-d-wus2-ghrunner-01"
+      LOCATION: "westus2"
+      VM_IMAGE: "canonical:ubuntu-24_04-lts:server:latest"
       VM_SIZE: "Standard_D8as_v5"
       VM_DISK_SIZE: 127
-      LOCATION: "westus2"
+      VM_NAME: "az-ghrunner-01d"
+      VM_USERNAME: "fgadmin"
       STORAGE_BLOB_URI: "https://sfgdwus2syspro8.blob.core.windows.net/"
     secrets:
       ARM_CLIENT_ID: ${{ secrets.ARM_CLIENT_ID }}
