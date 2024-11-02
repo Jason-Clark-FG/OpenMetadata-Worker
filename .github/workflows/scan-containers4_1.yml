@@ -31,7 +31,7 @@ jobs:
       VM_SIZE: "Standard_D8as_v5"
       VM_DISK_SIZE: "127"
       VM_NAME: "az-ghrunner-01t"
-      VM_USERNAME: "fgadmin"
+      VM_USERNAME: "ghradmin"
       STORAGE_BLOB_URI: "https://sfgdwus2syspro8.blob.core.windows.net/"
     secrets:
       ARM_CLIENT_ID: ${{ secrets.ARM_CLIENT_ID }}
@@ -285,6 +285,10 @@ jobs:
     needs: build
     uses: Jason-Clark-FG/azure-github-runner/.github/workflows/delete.yml@main
     if: ${{ always() }}
+    with:
+      RESOURCE_GROUP_NAME: "rg-t-wus2-ghrunner-01"
+      VM_NAME: "az-ghrunner-01t"
+      VM_USERNAME: "ghradmin"
     secrets:
       ARM_CLIENT_ID: ${{ secrets.ARM_CLIENT_ID }}
       ARM_CLIENT_SECRET: ${{ secrets.ARM_CLIENT_SECRET }}
