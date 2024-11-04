@@ -27,7 +27,8 @@ jobs:
     with:
       RESOURCE_GROUP_NAME: "rg-t-wus2-ghrunner-01"
       LOCATION: "westus2"
-      VM_IMAGE: "canonical:ubuntu-24_04-lts:server:latest"
+      # VM_IMAGE: "canonical:ubuntu-24_04-lts:server:latest"
+      VM_IMAGE: ${{ vars.VM_IMAGE_REF }}
       VM_SIZE: "Standard_D8as_v5"
       VM_DISK_SIZE: "127"
       VM_NAME: "az-ghrunner-01t"
