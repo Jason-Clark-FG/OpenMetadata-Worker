@@ -29,6 +29,7 @@ jobs:
       LOCATION: "westus2"
       # VM_IMAGE: "canonical:ubuntu-24_04-lts:server:latest"
       VM_IMAGE: ${{ vars.VM_IMAGE_REF }}
+      VM_SPOT: "True"
       VM_SIZE: "Standard_D8as_v5"
       VM_DISK_SIZE: "127"
       VM_NAME: "az-ghrunner-01t"
