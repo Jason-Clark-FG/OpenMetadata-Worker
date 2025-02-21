@@ -165,7 +165,7 @@ jobs:
           # Ingestion
           echo "Updating Ingestion"
           # yq -i 'with(.services.ingestion; .mem_limit = "6g" | .mem_reservation = "3g" | .cpus = 4.0)' ${{ vars.FG_COMPOSE_TARGET }}
-          Add Airflow Settings
+          # Add Airflow Settings
           yq -i '.services.ingestion.environment.AIRFLOW_ADMIN_USER = "${AIRFLOW_ADMIN_USER:-admin}" | .services.ingestion.environment.AIRFLOW_ADMIN_PASSWORD = "${AIRFLOW_ADMIN_PASSWORD:-admin}"' ${{ vars.FG_COMPOSE_TARGET }}
           ## Sep 19 2024: Now pymssql is installed by default, so we do not need to override the entrypoint command
           # yq -i '.services.ingestion.volumes += "./docker-volume/ingestion-entrypoint:/opt/airflow/entrypoint"' ${{ vars.FG_COMPOSE_TARGET }}
