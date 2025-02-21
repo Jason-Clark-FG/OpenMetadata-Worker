@@ -139,7 +139,7 @@ jobs:
           echo "Updating MySQL"
           ## Ref: https://dev.mysql.com/doc/refman/8.0/en/docker-mysql-more-topics.html#docker_var_mysql-root-host
           yq -i '.services.mysql.command = "--sort_buffer_size=20M"' ${{ vars.FG_COMPOSE_TARGET }}
-          # yq -i 'with(.services.mysql.deploy.resources; .limits.cpus = "2" | .limits.memory = "75%" | .reservations.cpus = "0.5" | .reservations.memory = "8G")' ${{ vars.FG_COMPOSE_TARGET }}
+          # yq -i 'with(.services.mysql.deploy.resources; .limits.cpus = "2" | .limits.memory = "11G" | .reservations.cpus = "0.5" | .reservations.memory = "7G")' ${{ vars.FG_COMPOSE_TARGET }}
           yq -i '.services.mysql.environment.MYSQL_ROOT_PASSWORD = "${MYSQL_ROOT_PASSWORD:-password}"' ${{ vars.FG_COMPOSE_TARGET }}
           yq -i '.services.mysql.environment.MYSQL_ROOT_HOST = "${MYSQL_ROOT_HOST:-%}"' ${{ vars.FG_COMPOSE_TARGET }}
           yq -i '.services.mysql.environment.OM_DATABASE = "${OM_DATABASE:-openmetadata_db}"' ${{ vars.FG_COMPOSE_TARGET }}
