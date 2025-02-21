@@ -114,48 +114,76 @@ jobs:
           git switch "${{ matrix.target.release_branch }}"
           git status
           git switch -C "${{ matrix.target.release_branch }}-${{ vars.BRANCH_SUFFIX }}"
+
           set -x
           command -v yq >/dev/null 2>&1;echo $?
+
+          # Top Level Elements
           compose_top_level_name="${${{ vars.FG_COMPOSE_TOP_LEVEL_NAME }}:-openmetadata}"
           top_level_name=$(yq ".name" ${{ vars.FG_COMPOSE_TARGET }})
           if [[ ${top_level_name} == null ]];then echo "Adding top-level name";yq -i ".name = \"${compose_top_level_name}\"" ${{ vars.FG_COMPOSE_TARGET }};fi
           compose_top_level_version="$(yq ".version" ${{ vars.FG_COMPOSE_TARGET }})"
           if [[ ${compose_top_level_version} != null ]];then echo "Removing obsolete compose version key";yq -i "del(.version)" ${{ vars.FG_COMPOSE_TARGET }};fi
+
+          # Restart Settings
           # key_list=$(yq '.services | keys' ${{ vars.FG_COMPOSE_TARGET }} | cut -c '3-')
           key_list=$(yq '.services | keys' ${{ vars.FG_COMPOSE_TARGET }} | cut -c '3-' | grep -v execute-migrate-all)
-          for key in ${key_list};do restart_value=$(yq ".services.${key}.restart" ${{ vars.FG_COMPOSE_TARGET }});if [[ $restart_value == null ]];then echo "Adding restart to ${key}";yq -i ".services.${key}.restart = \"always\"" ${{ vars.FG_COMPOSE_TARGET }};fi;done
-          # yq -i ".services.execute-migrate-all.restart = \"on-failure\"" ${{ vars.FG_COMPOSE_TARGET }}
+          for key in ${key_list};do
+            restart_value=$(yq ".services.${key}.restart" ${{ vars.FG_COMPOSE_TARGET }})
+            if [[ $restart_value == null ]];then
+              echo "Adding restart to ${key}";yq -i ".services.${key}.restart = \"always\"" ${{ vars.FG_COMPOSE_TARGET }}
+            fi
+          done
+
           # MySQL
+          echo "Updating MySQL"
           ## Ref: https://dev.mysql.com/doc/refman/8.0/en/docker-mysql-more-topics.html#docker_var_mysql-root-host
           yq -i '.services.mysql.command = "--sort_buffer_size=20M"' ${{ vars.FG_COMPOSE_TARGET }}
+          # yq -i 'with(.services.mysql.deploy.resources; .limits.cpus = "2" | .limits.memory = "75%" | .reservations.cpus = "0.5" | .reservations.memory = "8G")' ${{ vars.FG_COMPOSE_TARGET }}
           yq -i '.services.mysql.environment.MYSQL_ROOT_PASSWORD = "${MYSQL_ROOT_PASSWORD:-password}"' ${{ vars.FG_COMPOSE_TARGET }}
           yq -i '.services.mysql.environment.MYSQL_ROOT_HOST = "${MYSQL_ROOT_HOST:-%}"' ${{ vars.FG_COMPOSE_TARGET }}
           yq -i '.services.mysql.environment.OM_DATABASE = "${OM_DATABASE:-openmetadata_db}"' ${{ vars.FG_COMPOSE_TARGET }}
           yq -i '.services.mysql.volumes[1] |= "./docker-volume/mysql-entrypoint/mysql-script.sql:/docker-entrypoint-initdb.d/mysql-script.sql"' ${{ vars.FG_COMPOSE_TARGET }}
           yq -i '.services.mysql.healthcheck.test |= "mysql --user=root --password=$${MYSQL_ROOT_PASSWORD} --silent --execute \"use $${OM_DATABASE}\" 2>/dev/null || exit 1"' ${{ vars.FG_COMPOSE_TARGET }}
-          # Add Server Settings
-          yq -i '.services.openmetadata-server.volumes[0] |= "./docker-volume/jwtkeys:/etc/openmetadata/jwtkeys"' ${{ vars.FG_COMPOSE_TARGET }}
-          yq -i '.services.openmetadata-server.volumes += "./docker-volume/logs/server:/opt/openmetadata/logs"' ${{ vars.FG_COMPOSE_TARGET }}
-          yq -i '.services.openmetadata-server.healthcheck.test |= "wget -q --spider \"http://localhost:8586/healthcheck\" || exit 1"' ${{ vars.FG_COMPOSE_TARGET }}
+          yq -i '.services.mysql.healthcheck.start_period = "120s"' ${{ vars.FG_COMPOSE_TARGET }}
+
+          # Migrate-All
+          # echo "Updating Migrate-All"
+          # yq -i 'with(.services.execute-migrate-all; .mem_limit = "3g" | .mem_reservation = "1.5g" | .cpus = 2.0)' ${{ vars.FG_COMPOSE_TARGET }}
+          # yq -i ".services.execute-migrate-all.restart = \"on-failure\"" ${{ vars.FG_COMPOSE_TARGET }}
+
+          # Server
+          echo "Updating Server"
+          # yq -i 'with(.services.openmetadata-server; .mem_limit = "3g" | .mem_reservation = "1.5g" | .cpus = 2.0)' ${{ vars.FG_COMPOSE_TARGET }}
           # yq -i '.services.execute-migrate-all.environment.AIRFLOW_HOST = "${AIRFLOW_HOST:-"http://ingestion:8080"}"' ${{ vars.FG_COMPOSE_TARGET }}
           # yq -i '.services.openmetadata-server.environment.AIRFLOW_HOST = "${AIRFLOW_HOST:-"http://ingestion:8080"}"' ${{ vars.FG_COMPOSE_TARGET }}
           # Incorporate healthcheck fix (no longer necessary from version 1.1.1 onward)
           # yq -i '.services.openmetadata-server.healthcheck.test = ["CMD", "wget", "-q", "--spider", "http://localhost:8586/healthcheck"]' ${{ vars.FG_COMPOSE_TARGET }}
-          # Add Airflow Settings
-          ## Sep 19 2024: Now pymssql is installed by default, so we do not need to override the entrypoint command
-          yq -i '.services.ingestion.environment.AIRFLOW_ADMIN_USER = "${AIRFLOW_ADMIN_USER:-admin}" | .services.ingestion.environment.AIRFLOW_ADMIN_PASSWORD = "${AIRFLOW_ADMIN_PASSWORD:-admin}"' ${{ vars.FG_COMPOSE_TARGET }}
+          yq -i '.services.openmetadata-server.healthcheck.test |= "wget -q --spider \"http://localhost:8586/healthcheck\" || exit 1"' ${{ vars.FG_COMPOSE_TARGET }}
+          yq -i 'with(.services.openmetadata-server.healthcheck; .interval = "30s" | .timeout = "20s" | .retries = 10 | .start_period = "180s")' ${{ vars.FG_COMPOSE_TARGET }}
+
           # Ingestion
+          echo "Updating Ingestion"
+          # yq -i 'with(.services.ingestion; .mem_limit = "6g" | .mem_reservation = "3g" | .cpus = 4.0)' ${{ vars.FG_COMPOSE_TARGET }}
+          Add Airflow Settings
+          yq -i '.services.ingestion.environment.AIRFLOW_ADMIN_USER = "${AIRFLOW_ADMIN_USER:-admin}" | .services.ingestion.environment.AIRFLOW_ADMIN_PASSWORD = "${AIRFLOW_ADMIN_PASSWORD:-admin}"' ${{ vars.FG_COMPOSE_TARGET }}
+          ## Sep 19 2024: Now pymssql is installed by default, so we do not need to override the entrypoint command
           # yq -i '.services.ingestion.volumes += "./docker-volume/ingestion-entrypoint:/opt/airflow/entrypoint"' ${{ vars.FG_COMPOSE_TARGET }}
-          yq -i '.services.ingestion.volumes += "./docker-volume/logs/ingestion:/opt/airflow/logs"' ${{ vars.FG_COMPOSE_TARGET }}
           # yq -i '.services.ingestion.command[0] |= "/opt/airflow/entrypoint/entrypoint.sh"' ${{ vars.FG_COMPOSE_TARGET }}
+          yq -i '.services.ingestion.volumes += "/etc/ssl/certs:/etc/ssl/certs:ro"' ${{ vars.FG_COMPOSE_TARGET }}
+          yq -i '.services.ingestion.volumes += "./docker-volume/logs/ingestion:/opt/airflow/logs"' ${{ vars.FG_COMPOSE_TARGET }}
           yq -i 'with(.services.ingestion.environment.AIRFLOW__DATABASE__SQL_ALCHEMY_CONN ; . = "$${DB_SCHEME}://$${DB_USER}:$${DB_PASSWORD}@$${DB_HOST}:$${DB_PORT}/$${AIRFLOW_DB}$${DB_PROPERTIES}" | . style="double")' ${{ vars.FG_COMPOSE_TARGET }}
           # yq -i 'with(.services.ingestion.healthcheck ; .test = "curl -fsu $${AIRFLOW_ADMIN_USER}:$${AIRFLOW_ADMIN_PASSWORD} http://localhost:8080/health || exit 1" | .interval = "30s" | .timeout = "10s" | .retries = 5 | .start_period = "30s")' ${{ vars.FG_COMPOSE_TARGET }}
-          yq -i '.services.ingestion.healthcheck.test = "airflow jobs check --job-type SchedulerJob --local || exit 1"' ${{ vars.FG_COMPOSE_TARGET }}
           # yq -i '.services.ingestion.healthcheck.test = "airflow jobs check --local || exit 1"' ${{ vars.FG_COMPOSE_TARGET }}
           # yq -i 'with(.services.ingestion.healthcheck.test; . = ["CMD", "airflow", "jobs", "check", "--local"] | . style="flow")' ${{ vars.FG_COMPOSE_TARGET }}
+          yq -i '.services.ingestion.healthcheck.test = "airflow jobs check --job-type SchedulerJob --local || exit 1"' ${{ vars.FG_COMPOSE_TARGET }}
+          yq -i 'with(.services.ingestion.healthcheck; .interval = "30s" | .timeout = "20s" | .retries = 5 | .start_period = "120s")' ${{ vars.FG_COMPOSE_TARGET }}
+
           # Elasticsearch
+          echo "Updating Elasticsearch"
           ## Sep 19 2024: We no longer need to override the ES container version
           # yq -i '.services.elasticsearch.image |= sub("[0-9]\..*", "${{ matrix.target.es_release_branch }}")' ${{ vars.FG_COMPOSE_TARGET }}
+          # yq -i 'with(.services.elasticsearch; .mem_limit = "4g" | .mem_reservation = "2g" | .cpus = 2.0)' ${{ vars.FG_COMPOSE_TARGET }}
           es_xpack_security=$(yq '.services.elasticsearch.environment.[] | select(. == "xpack.security.enabled=*")' ${{ vars.FG_COMPOSE_TARGET }})
           if [[ -n $es_xpack_security ]];then
             yq -i '(.services.elasticsearch.environment.[] | select(. == "xpack.security.enabled=*")) |= "xpack.security.enabled=false"' ${{ vars.FG_COMPOSE_TARGET }}
@@ -174,15 +202,30 @@ jobs:
           else
             yq -i '.services.elasticsearch.environment += ["KEYSTORE_PASSWORD=${KEYSTORE_PASSWORD:-}"]' ${{ vars.FG_COMPOSE_TARGET }}
           fi
-          yq -i 'with(.services.elasticsearch.healthcheck ; .test = "curl --silent --user elastic:$${ELASTIC_PASSWORD} \"http://localhost:9200/_cluster/health?wait_for_status=yellow&timeout=15s\" || exit 1" | .interval = "15s" | .timeout = "10s" | .retries = 10)' ${{ vars.FG_COMPOSE_TARGET }}
-          key_list=$(yq '.services | keys' ${{ vars.FG_COMPOSE_TARGET }} | cut -c '3-' | grep -v execute-migrate-all)
-          for key in ${key_list};do condition_value=$(yq ".services.${key}.depends_on.elasticsearch.condition" ${{ vars.FG_COMPOSE_TARGET }});if [[ $condition_value == service_started ]];then echo "Updating service_started to service_healthy in ${key}";yq -i ".services.${key}.depends_on.elasticsearch.condition = \"service_healthy\"" ${{ vars.FG_COMPOSE_TARGET }};fi;done
+          yq -i 'with(.services.elasticsearch.healthcheck ; .test = "curl --silent --user elastic:$${ELASTIC_PASSWORD} \"http://localhost:9200/_cluster/health?wait_for_status=yellow&timeout=15s\" || exit 1" | .interval = "15s" | .timeout = "10s" | .retries = 10 | .start_period = "60s")' ${{ vars.FG_COMPOSE_TARGET }}
           yq -i '.services.elasticsearch.volumes += "./docker-volume/logs/elasticsearch:/usr/share/elasticsearch/logs"' ${{ vars.FG_COMPOSE_TARGET }}
+
+          # Update Elasticsearch Dependency in other Services
+          echo "Updating Elasticsearch Dependency in other Services"
+          key_list=$(yq '.services | keys' ${{ vars.FG_COMPOSE_TARGET }} | cut -c '3-' | grep -v execute-migrate-all)
+          for key in ${key_list};do
+            condition_value=$(yq ".services.${key}.depends_on.elasticsearch.condition" ${{ vars.FG_COMPOSE_TARGET }})
+            if [[ $condition_value == service_started ]];then 
+              echo "Updating service_started to service_healthy in ${key}"
+              yq -i ".services.${key}.depends_on.elasticsearch.condition = \"service_healthy\"" ${{ vars.FG_COMPOSE_TARGET }}
+            fi
+          done
+
           # AutoHeal
+          # echo "Updating AutoHeal"
           # yq -i 'with(.services.autoheal ; .container_name = "openmetadata_autoheal" | .image = "willfarrell/autoheal" | .restart = "always" | .environment = ["AUTOHEAL_CONTAINER_LABEL=all"] | .volumes = ["/var/run/docker.sock:/var/run/docker.sock"] | .networks = ["app_net"])' ${{ vars.FG_COMPOSE_TARGET }}
+
           # Static
-          yq -i 'with(.services.static ; .container_name = "openmetadata_static" | .image = "ghcr.io/jason-clark-fg/darkhttpd-site:latest" | .restart = "always" | .expose = [3000] | .ports = ["3000:3000"] | .networks = ["app_net"] | .depends_on.ingestion.condition = "service_healthy")' ${{ vars.FG_COMPOSE_TARGET }}
+          echo "Updating Static"
+          yq -i 'with(.services.static ; .container_name = "openmetadata_static" | .image = "ghcr.io/jason-clark-fg/darkhttpd-site:latest" | .restart = "always" | .expose = [3000] | .ports = ["3000:3000"] | .networks = ["app_net"] | .mem_limit = "512m" | .mem_reservation = "256m" | .cpus = 0.5 | .depends_on.ingestion.condition = "service_healthy")' ${{ vars.FG_COMPOSE_TARGET }}
+
           set +x
+
           git status
           git add ${{ vars.FG_COMPOSE_TARGET }}
           git commit -m "chore: Modify ${{ vars.FG_COMPOSE_TARGET }}"
