@@ -177,7 +177,7 @@ jobs:
           # yq -i '.services.ingestion.healthcheck.test = "airflow jobs check --local || exit 1"' ${{ vars.FG_COMPOSE_TARGET }}
           # yq -i 'with(.services.ingestion.healthcheck.test; . = ["CMD", "airflow", "jobs", "check", "--local"] | . style="flow")' ${{ vars.FG_COMPOSE_TARGET }}
           yq -i '.services.ingestion.healthcheck.test = "airflow jobs check --job-type SchedulerJob --local || exit 1"' ${{ vars.FG_COMPOSE_TARGET }}
-          yq -i 'with(.services.ingestion.healthcheck; .interval = "30s" | .timeout = "20s" | .retries = 5 | .start_period = "120s")' ${{ vars.FG_COMPOSE_TARGET }}
+          yq -i 'with(.services.ingestion.healthcheck; .interval = "90s" | .timeout = "40s" | .retries = 3 | .start_period = "120s")' ${{ vars.FG_COMPOSE_TARGET }}
 
           # Elasticsearch
           echo "Updating Elasticsearch"
