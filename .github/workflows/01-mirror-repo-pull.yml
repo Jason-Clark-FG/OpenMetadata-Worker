@@ -23,7 +23,7 @@ jobs:
         # You may pin to the exact commit or the version.
         # uses: yesolutions/mirror-action@082a9611ed4b64c796245a62b34584ee2ded6833
         # uses: yesolutions/mirror-action@v0.6.0
-        uses: yesolutions/mirror-action@master
+        uses: Jason-Clark-FG/mirror-action@main
         with:
           # The remote ref name to use. 'mirror' by default. Useful to avoid conflicts with existing remotes.
           REMOTE_NAME: 'OpenMetadata-Mirror'
