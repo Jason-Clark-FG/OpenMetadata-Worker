@@ -1,4 +1,4 @@
-name: Keep Workflows Active
+name: "Worker: Step 99 - Keep Workflows Active"
 
 on:
   schedule:
