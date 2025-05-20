@@ -1,0 +1,35 @@
+name: Keep Workflows Active
+
+on:
+  schedule:
+    - cron: '0 0 1 * *'
+  workflow_dispatch:
+
+jobs:
+  keep-alive:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Create timestamp file
+        run: |
+          mkdir -p .github/keepalive
+          echo "Last updated: $(date -u)" > .github/keepalive/timestamp.txt
+
+      - name: Commit and push if changed
+        run: |
+          git config --global user.name 'GitHub Action'
+          git config --global user.email 'action@github.com'
+          git add .github/keepalive/timestamp.txt
+
+          if git diff --staged --quiet; then
+            echo "No changes to commit"
+            exit 0
+          fi
+
+          git commit -m "chore: Update keepalive timestamp [skip ci]"
+          git push
