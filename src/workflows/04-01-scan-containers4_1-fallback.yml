@@ -1,0 +1,321 @@
+name: "Worker: Step 4.1.4.1 - Scan Containers"
+
+on:
+  workflow_run:
+    workflows: ["Worker: Step 3 - Modify Work Repo Matrix"]
+    types:
+      - completed
+  workflow_dispatch:
+
+env:
+  IMAGE_REGISTRY_1: docker.getcollate.io
+  IMAGE_REGISTRY_2: docker.elastic.co
+  IMAGE_OWNER_1: openmetadata
+  IMAGE_OWNER_2: elasticsearch
+  IMAGE_NAME_1: db
+  IMAGE_NAME_2: ingestion
+  IMAGE_NAME_3: server
+  IMAGE_NAME_4: elasticsearch
+  IMAGE_TAG_1: "1.1.6"
+  IMAGE_TAG_2: "7.16.3"
+  SCAN_RETRIES: 4
+  REPORTS_OUT: false
+
+jobs:
+  # First attempt - create spot VM
+  create-spot:
+    uses: Jason-Clark-FG/azure-github-runner/.github/workflows/create.yml@main
+    with:
+      RESOURCE_GROUP_NAME: "rg-t-wus2-ghrunner-01"
+      LOCATION: "westus2"
+      VM_IMAGE: ${{ vars.VM_IMAGE_REF }}
+      VM_SPOT: "True"
+      VM_SIZE: "Standard_D8as_v5"
+      VM_DISK_SIZE: "127"
+      VM_NAME: "az-ghrunner-01t-spot"
+      VM_USERNAME: "ghradmin"
+      STORAGE_BLOB_URI: "https://sfgdwus2syspro8.blob.core.windows.net/"
+    secrets:
+      ARM_CLIENT_ID: ${{ secrets.ARM_CLIENT_ID }}
+      ARM_CLIENT_SECRET: ${{ secrets.ARM_CLIENT_SECRET }}
+      ARM_TENANT_ID: ${{ secrets.ARM_TENANT_ID }}
+      ARM_SUBSCRIPTION_ID: ${{ secrets.ARM_SUBSCRIPTION_ID }}
+      GH_TOKEN: ${{ secrets.GH_TOKEN }}
+
+  # First attempt - try to build on spot VM
+  build-spot:
+    runs-on: ${{ needs.create-spot.outputs.uniq_label }}
+    needs: create-spot
+    if: ${{ github.event.workflow_run.conclusion == 'success' || github.event_name == 'workflow_dispatch' }}
+    outputs:
+      success: ${{ steps.mark-success.outputs.success }}
+    permissions:
+      security-events: write
+      actions: read
+      contents: read
+      packages: write
+
+    steps:
+    - name: Checkout Self
+      uses: actions/checkout@v4
+
+    - name: Login to Docker Hub
+      uses: docker/login-action@v3
+      with:
+        username: ${{ secrets.DOCKER_USER }}
+        password: ${{ secrets.DOCKER_PAT }}
+
+    - name: Show Info
+      run: |
+        echo "Running on SPOT instance"
+        ls -lDR ${GITHUB_WORKSPACE} | grep ':$'
+        df -h
+        env | sort
+
+    - name: Setup Docker buildx
+      uses: docker/setup-buildx-action@v3
+
+    - name: "Mend: Scan Images"
+      id: mend-cli-scan-1
+      if: ${{ github.event_name != 'pull_request_target' }}
+      shell: bash
+      run: |
+        # Install Mend
+        curl -fsSL https://downloads.mend.io/cli/linux_amd64/mend -o /usr/local/bin/mend && chmod +x /usr/local/bin/mend
+        mend version
+
+        # Create reports directory
+        mkdir -p ./reports
+        ls -laR ~/.mend || true
+        df -h
+
+        # Image 4 - LATEST
+        if [[ ${{ vars.OM_LATEST_RELEASE }} != ${{ vars.DEV_RELEASE_BRANCH }} && ${{ vars.OM_LATEST_RELEASE }} != ${{ vars.PROD_RELEASE_BRANCH }} ]];then
+          for ((tries=1;tries <= ${{ env.SCAN_RETRIES }};tries++));do
+            echo "Scanning ${{ env.IMAGE_REGISTRY_1 }}/${{ env.IMAGE_OWNER_1 }}/${{ env.IMAGE_NAME_2 }}:${{ vars.OM_LATEST_RELEASE }}"
+            mend image ${{ env.IMAGE_REGISTRY_1 }}/${{ env.IMAGE_OWNER_1 }}/${{ env.IMAGE_NAME_2 }}:${{ vars.OM_LATEST_RELEASE }} --filename ./reports/${{ env.IMAGE_NAME_2 }}-${{ vars.OM_LATEST_RELEASE }}.sarif --format sarif --scope "*//DataCatalogue//*"
+            RESULT=$?
+            ls -laR ~/.mend/logs || true
+            df -h
+            (( $RESULT == 0 )) && break 1 || echo "Trying again ... "
+          done
+          sleep 30
+        fi
+
+        # Image 4 - DEV
+        if [[ ${{ vars.DEV_RELEASE_BRANCH }} != ${{ vars.PROD_RELEASE_BRANCH }} ]];then
+          for ((tries=1;tries <= ${{ env.SCAN_RETRIES }};tries++));do
+            echo "Scanning ${{ env.IMAGE_REGISTRY_1 }}/${{ env.IMAGE_OWNER_1 }}/${{ env.IMAGE_NAME_2 }}:${{ vars.DEV_RELEASE_BRANCH }}"
+            mend image ${{ env.IMAGE_REGISTRY_1 }}/${{ env.IMAGE_OWNER_1 }}/${{ env.IMAGE_NAME_2 }}:${{ vars.DEV_RELEASE_BRANCH }} --filename ./reports/${{ env.IMAGE_NAME_2 }}-${{ vars.DEV_RELEASE_BRANCH }}.sarif --format sarif --scope "*//DataCatalogue//*"
+            RESULT=$?
+            ls -laR ~/.mend/logs || true
+            df -h
+            (( $RESULT == 0 )) && break 1 || echo "Trying again ... "
+          done
+          sleep 30
+        fi
+
+        # Image 4 - PRD
+        for ((tries=1;tries <= ${{ env.SCAN_RETRIES }};tries++));do
+          echo "Scanning ${{ env.IMAGE_REGISTRY_1 }}/${{ env.IMAGE_OWNER_1 }}/${{ env.IMAGE_NAME_2 }}:${{ vars.PROD_RELEASE_BRANCH }}"
+          mend image ${{ env.IMAGE_REGISTRY_1 }}/${{ env.IMAGE_OWNER_1 }}/${{ env.IMAGE_NAME_2 }}:${{ vars.PROD_RELEASE_BRANCH }} --filename ./reports/${{ env.IMAGE_NAME_2 }}-${{ vars.PROD_RELEASE_BRANCH }}.sarif --format sarif --scope "*//DataCatalogue//*"
+          RESULT=$?
+          ls -laR ~/.mend/logs || true
+          df -h
+          (( $RESULT == 0 )) && break 1 || echo "Trying again ... "
+        done
+        sleep 30
+        ls -laR ~/.mend/logs || true
+        df -h
+      env:
+        MEND_URL: ${{ vars.MEND_URL }}
+        MEND_EMAIL: ${{ secrets.MEND_EMAIL }}
+        MEND_USER_KEY: ${{ secrets.MEND_USER_KEY }}
+        MEND_LOG_LEVEL: DEBUG
+
+    - name: SARIF Multitool
+      id: sarif-multitool
+      uses: microsoft/sarif-actions@v0.1
+      with:
+        command: merge ./reports/*.sarif --recurse true --output-directory=./reports/ --output-file=MendResults.sarif
+
+    - name: "Mend: Upload SARIF results"
+      id: upload-sarif-all
+      if: ${{ github.event_name != 'pull_request_target' && env.REPORTS_OUT == 'true' }}
+      uses: github/codeql-action/upload-sarif@v3
+      with:
+        sarif_file: './reports/MendResults.sarif'
+        wait-for-processing: false
+
+    - name: "Mend: Upload logs"
+      uses: actions/upload-artifact@v4
+      with:
+        name: mend_io_cn_scan_logs_spot
+        path: ~/.mend/logs/cn/*.log
+
+    - name: Mark Success
+      id: mark-success
+      run: echo "success=true" >> $GITHUB_OUTPUT
+
+  # Cleanup spot VM after first attempt (whether success or failure)
+  delete-spot:
+    needs: [build-spot, create-spot]
+    uses: Jason-Clark-FG/azure-github-runner/.github/workflows/delete.yml@main
+    if: ${{ always() && needs.create-spot.result == 'success' }}
+    with:
+      RESOURCE_GROUP_NAME: "rg-t-wus2-ghrunner-01"
+      VM_NAME: "az-ghrunner-01t-spot"
+      VM_USERNAME: "ghradmin"
+    secrets:
+      ARM_CLIENT_ID: ${{ secrets.ARM_CLIENT_ID }}
+      ARM_CLIENT_SECRET: ${{ secrets.ARM_CLIENT_SECRET }}
+      ARM_TENANT_ID: ${{ secrets.ARM_TENANT_ID }}
+      ARM_SUBSCRIPTION_ID: ${{ secrets.ARM_SUBSCRIPTION_ID }}
+      GH_TOKEN: ${{ secrets.GH_TOKEN }}
+
+  # Retry with regular VM if spot failed (only after cleanup)
+  create-regular:
+    needs: [build-spot, delete-spot]
+    if: ${{ always() && needs.build-spot.result == 'failure' && needs.delete-spot.result != 'failure' }}
+    uses: Jason-Clark-FG/azure-github-runner/.github/workflows/create.yml@main
+    with:
+      RESOURCE_GROUP_NAME: "rg-t-wus2-ghrunner-01"
+      LOCATION: "westus2"
+      VM_IMAGE: ${{ vars.VM_IMAGE_REF }}
+      VM_SPOT: "False"  # Regular instance
+      VM_SIZE: "Standard_D8as_v5"
+      VM_DISK_SIZE: "127"
+      VM_NAME: "az-ghrunner-01t-regular"
+      VM_USERNAME: "ghradmin"
+      STORAGE_BLOB_URI: "https://sfgdwus2syspro8.blob.core.windows.net/"
+    secrets:
+      ARM_CLIENT_ID: ${{ secrets.ARM_CLIENT_ID }}
+      ARM_CLIENT_SECRET: ${{ secrets.ARM_CLIENT_SECRET }}
+      ARM_TENANT_ID: ${{ secrets.ARM_TENANT_ID }}
+      ARM_SUBSCRIPTION_ID: ${{ secrets.ARM_SUBSCRIPTION_ID }}
+      GH_TOKEN: ${{ secrets.GH_TOKEN }}
+
+  # Retry build on regular VM
+  build-regular:
+    runs-on: ${{ needs.create-regular.outputs.uniq_label }}
+    needs: create-regular
+    if: ${{ needs.create-regular.result == 'success' }}
+    permissions:
+      security-events: write
+      actions: read
+      contents: read
+      packages: write
+
+    steps:
+    - name: Checkout Self
+      uses: actions/checkout@v4
+
+    - name: Login to Docker Hub
+      uses: docker/login-action@v3
+      with:
+        username: ${{ secrets.DOCKER_USER }}
+        password: ${{ secrets.DOCKER_PAT }}
+
+    - name: Show Info
+      run: |
+        echo "Running on REGULAR instance (spot was evicted)"
+        ls -lDR ${GITHUB_WORKSPACE} | grep ':$'
+        df -h
+        env | sort
+
+    - name: Setup Docker buildx
+      uses: docker/setup-buildx-action@v3
+
+    - name: "Mend: Scan Images"
+      id: mend-cli-scan-1
+      if: ${{ github.event_name != 'pull_request_target' }}
+      shell: bash
+      run: |
+        # Install Mend
+        curl -fsSL https://downloads.mend.io/cli/linux_amd64/mend -o /usr/local/bin/mend && chmod +x /usr/local/bin/mend
+        mend version
+
+        # Create reports directory
+        mkdir -p ./reports
+        ls -laR ~/.mend || true
+        df -h
+
+        # Image 4 - LATEST
+        if [[ ${{ vars.OM_LATEST_RELEASE }} != ${{ vars.DEV_RELEASE_BRANCH }} && ${{ vars.OM_LATEST_RELEASE }} != ${{ vars.PROD_RELEASE_BRANCH }} ]];then
+          for ((tries=1;tries <= ${{ env.SCAN_RETRIES }};tries++));do
+            echo "Scanning ${{ env.IMAGE_REGISTRY_1 }}/${{ env.IMAGE_OWNER_1 }}/${{ env.IMAGE_NAME_2 }}:${{ vars.OM_LATEST_RELEASE }}"
+            mend image ${{ env.IMAGE_REGISTRY_1 }}/${{ env.IMAGE_OWNER_1 }}/${{ env.IMAGE_NAME_2 }}:${{ vars.OM_LATEST_RELEASE }} --filename ./reports/${{ env.IMAGE_NAME_2 }}-${{ vars.OM_LATEST_RELEASE }}.sarif --format sarif --scope "*//DataCatalogue//*"
+            RESULT=$?
+            ls -laR ~/.mend/logs || true
+            df -h
+            (( $RESULT == 0 )) && break 1 || echo "Trying again ... "
+          done
+          sleep 30
+        fi
+
+        # Image 4 - DEV
+        if [[ ${{ vars.DEV_RELEASE_BRANCH }} != ${{ vars.PROD_RELEASE_BRANCH }} ]];then
+          for ((tries=1;tries <= ${{ env.SCAN_RETRIES }};tries++));do
+            echo "Scanning ${{ env.IMAGE_REGISTRY_1 }}/${{ env.IMAGE_OWNER_1 }}/${{ env.IMAGE_NAME_2 }}:${{ vars.DEV_RELEASE_BRANCH }}"
+            mend image ${{ env.IMAGE_REGISTRY_1 }}/${{ env.IMAGE_OWNER_1 }}/${{ env.IMAGE_NAME_2 }}:${{ vars.DEV_RELEASE_BRANCH }} --filename ./reports/${{ env.IMAGE_NAME_2 }}-${{ vars.DEV_RELEASE_BRANCH }}.sarif --format sarif --scope "*//DataCatalogue//*"
+            RESULT=$?
+            ls -laR ~/.mend/logs || true
+            df -h
+            (( $RESULT == 0 )) && break 1 || echo "Trying again ... "
+          done
+          sleep 30
+        fi
+
+        # Image 4 - PRD
+        for ((tries=1;tries <= ${{ env.SCAN_RETRIES }};tries++));do
+          echo "Scanning ${{ env.IMAGE_REGISTRY_1 }}/${{ env.IMAGE_OWNER_1 }}/${{ env.IMAGE_NAME_2 }}:${{ vars.PROD_RELEASE_BRANCH }}"
+          mend image ${{ env.IMAGE_REGISTRY_1 }}/${{ env.IMAGE_OWNER_1 }}/${{ env.IMAGE_NAME_2 }}:${{ vars.PROD_RELEASE_BRANCH }} --filename ./reports/${{ env.IMAGE_NAME_2 }}-${{ vars.PROD_RELEASE_BRANCH }}.sarif --format sarif --scope "*//DataCatalogue//*"
+          RESULT=$?
+          ls -laR ~/.mend/logs || true
+          df -h
+          (( $RESULT == 0 )) && break 1 || echo "Trying again ... "
+        done
+        sleep 30
+        ls -laR ~/.mend/logs || true
+        df -h
+      env:
+        MEND_URL: ${{ vars.MEND_URL }}
+        MEND_EMAIL: ${{ secrets.MEND_EMAIL }}
+        MEND_USER_KEY: ${{ secrets.MEND_USER_KEY }}
+        MEND_LOG_LEVEL: DEBUG
+
+    - name: SARIF Multitool
+      id: sarif-multitool
+      uses: microsoft/sarif-actions@v0.1
+      with:
+        command: merge ./reports/*.sarif --recurse true --output-directory=./reports/ --output-file=MendResults.sarif
+
+    - name: "Mend: Upload SARIF results"
+      id: upload-sarif-all
+      if: ${{ github.event_name != 'pull_request_target' && env.REPORTS_OUT == 'true' }}
+      uses: github/codeql-action/upload-sarif@v3
+      with:
+        sarif_file: './reports/MendResults.sarif'
+        wait-for-processing: false
+
+    - name: "Mend: Upload logs"
+      uses: actions/upload-artifact@v4
+      with:
+        name: mend_io_cn_scan_logs_regular
+        path: ~/.mend/logs/cn/*.log
+
+  # Cleanup regular VM
+  delete-regular:
+    needs: [build-regular, create-regular]
+    uses: Jason-Clark-FG/azure-github-runner/.github/workflows/delete.yml@main
+    if: ${{ always() && needs.create-regular.result == 'success' }}
+    with:
+      RESOURCE_GROUP_NAME: "rg-t-wus2-ghrunner-01"
+      VM_NAME: "az-ghrunner-01t-regular"
+      VM_USERNAME: "ghradmin"
+    secrets:
+      ARM_CLIENT_ID: ${{ secrets.ARM_CLIENT_ID }}
+      ARM_CLIENT_SECRET: ${{ secrets.ARM_CLIENT_SECRET }}
+      ARM_TENANT_ID: ${{ secrets.ARM_TENANT_ID }}
+      ARM_SUBSCRIPTION_ID: ${{ secrets.ARM_SUBSCRIPTION_ID }}
+      GH_TOKEN: ${{ secrets.GH_TOKEN }}
