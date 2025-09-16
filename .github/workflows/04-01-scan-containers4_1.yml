@@ -69,6 +69,7 @@ jobs:
       VM_NAME: "az-ghrunner-01t-spot-${{ matrix.image.suffix }}"
       VM_USERNAME: "ghradmin"
       STORAGE_BLOB_URI: "https://sfgdwus2syspro8.blob.core.windows.net/"
+      SSH_KEY_BASENAME: id_rsa-${{ matrix.image.suffix }}
     secrets:
       ARM_CLIENT_ID: ${{ secrets.ARM_CLIENT_ID }}
       ARM_CLIENT_SECRET: ${{ secrets.ARM_CLIENT_SECRET }}
@@ -232,6 +233,7 @@ jobs:
       RESOURCE_GROUP_NAME: "rg-t-wus2-ghrunner-01"
       VM_NAME: "az-ghrunner-01t-spot-${{ matrix.image.suffix }}"
       VM_USERNAME: "ghradmin"
+      SSH_KEY_BASENAME: id_rsa-${{ matrix.image.suffix }}
     secrets:
       ARM_CLIENT_ID: ${{ secrets.ARM_CLIENT_ID }}
       ARM_CLIENT_SECRET: ${{ secrets.ARM_CLIENT_SECRET }}
@@ -294,6 +296,7 @@ jobs:
       VM_NAME: "az-ghrunner-01t-regular-${{ matrix.image.suffix }}"
       VM_USERNAME: "ghradmin"
       STORAGE_BLOB_URI: "https://sfgdwus2syspro8.blob.core.windows.net/"
+      SSH_KEY_BASENAME: id_rsa-${{ matrix.image.suffix }}
     secrets:
       ARM_CLIENT_ID: ${{ secrets.ARM_CLIENT_ID }}
       ARM_CLIENT_SECRET: ${{ secrets.ARM_CLIENT_SECRET }}
@@ -401,6 +404,7 @@ jobs:
       RESOURCE_GROUP_NAME: "rg-t-wus2-ghrunner-01"
       VM_NAME: "az-ghrunner-01t-regular-${{ matrix.image.suffix }}"
       VM_USERNAME: "ghradmin"
+      SSH_KEY_BASENAME: id_rsa-${{ matrix.image.suffix }}
     secrets:
       ARM_CLIENT_ID: ${{ secrets.ARM_CLIENT_ID }}
       ARM_CLIENT_SECRET: ${{ secrets.ARM_CLIENT_SECRET }}
