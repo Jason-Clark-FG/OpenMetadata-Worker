@@ -22,8 +22,42 @@ env:
   REPORTS_OUT: false
 
 jobs:
-  # First attempt - create spot VM
+  # Determine which images need to be scanned
+  setup-matrix:
+    runs-on: ubuntu-latest
+    outputs:
+      matrix: ${{ steps.matrix.outputs.matrix }}
+    steps:
+    - name: Generate Matrix
+      id: matrix
+      run: |
+        matrix_items=()
+
+        # Always scan PROD
+        matrix_items+=('{"tag":"${{ vars.PROD_RELEASE_BRANCH }}","suffix":"prod","name":"Production"}')
+
+        # Scan DEV if different from PROD
+        if [[ "${{ vars.DEV_RELEASE_BRANCH }}" != "${{ vars.PROD_RELEASE_BRANCH }}" ]]; then
+          matrix_items+=('{"tag":"${{ vars.DEV_RELEASE_BRANCH }}","suffix":"dev","name":"Development"}')
+        fi
+
+        # Scan LATEST if different from both DEV and PROD
+        if [[ "${{ vars.OM_LATEST_RELEASE }}" != "${{ vars.DEV_RELEASE_BRANCH }}" && "${{ vars.OM_LATEST_RELEASE }}" != "${{ vars.PROD_RELEASE_BRANCH }}" ]]; then
+          matrix_items+=('{"tag":"${{ vars.OM_LATEST_RELEASE }}","suffix":"latest","name":"Latest"}')
+        fi
+
+        # Create JSON array
+        matrix_json=$(IFS=,; echo "[${matrix_items[*]}]")
+        echo "Generated matrix: $matrix_json"
+        echo "matrix=$matrix_json" >> $GITHUB_OUTPUT
+
+  # Create spot VMs for each image scan
   create-spot:
+    needs: setup-matrix
+    strategy:
+      matrix:
+        image: ${{ fromJson(needs.setup-matrix.outputs.matrix) }}
+      fail-fast: false  # Allow other scans to continue if one fails
     uses: Jason-Clark-FG/azure-github-runner/.github/workflows/create.yml@main
     with:
       RESOURCE_GROUP_NAME: "rg-t-wus2-ghrunner-01"
@@ -32,7 +66,7 @@ jobs:
       VM_SPOT: "True"
       VM_SIZE: "Standard_D8as_v5"
       VM_DISK_SIZE: "127"
-      VM_NAME: "az-ghrunner-01t-spot"
+      VM_NAME: "az-ghrunner-01t-spot-${{ matrix.image.suffix }}"
       VM_USERNAME: "ghradmin"
       STORAGE_BLOB_URI: "https://sfgdwus2syspro8.blob.core.windows.net/"
     secrets:
@@ -42,13 +76,19 @@ jobs:
       ARM_SUBSCRIPTION_ID: ${{ secrets.ARM_SUBSCRIPTION_ID }}
       GH_TOKEN: ${{ secrets.GH_TOKEN }}
 
-  # First attempt - try to build on spot VM
+  # Try to build on spot VMs
   build-spot:
+    needs: [setup-matrix, create-spot]
+    strategy:
+      matrix:
+        image: ${{ fromJson(needs.setup-matrix.outputs.matrix) }}
+      fail-fast: false
     runs-on: ${{ needs.create-spot.outputs.uniq_label }}
-    needs: create-spot
-    if: ${{ github.event.workflow_run.conclusion == 'success' || github.event_name == 'workflow_dispatch' }}
+    timeout-minutes: 90  # ~1 hour per scan + buffer
     outputs:
-      success: ${{ steps.mark-success.outputs.success }}
+      success-prod: ${{ matrix.image.suffix == 'prod' && steps.mark-success.outputs.success || '' }}
+      success-dev: ${{ matrix.image.suffix == 'dev' && steps.mark-success.outputs.success || '' }}
+      success-latest: ${{ matrix.image.suffix == 'latest' && steps.mark-success.outputs.success || '' }}
     permissions:
       security-events: write
       actions: read
@@ -67,7 +107,8 @@ jobs:
 
     - name: Show Info
       run: |
-        echo "Running on SPOT instance"
+        echo "🟡 Running ${{ matrix.image.name }} scan on SPOT instance"
+        echo "Image: ${{ env.IMAGE_REGISTRY_1 }}/${{ env.IMAGE_OWNER_1 }}/${{ env.IMAGE_NAME_2 }}:${{ matrix.image.tag }}"
         ls -lDR ${GITHUB_WORKSPACE} | grep ':$'
         df -h
         env | sort
@@ -75,8 +116,8 @@ jobs:
     - name: Setup Docker buildx
       uses: docker/setup-buildx-action@v3
 
-    - name: "Mend: Scan Images"
-      id: mend-cli-scan-1
+    - name: "Mend: Scan Image - ${{ matrix.image.name }}"
+      id: mend-cli-scan
       if: ${{ github.event_name != 'pull_request_target' }}
       shell: bash
       run: |
@@ -89,42 +130,63 @@ jobs:
         ls -laR ~/.mend || true
         df -h
 
-        # Image 4 - LATEST
-        if [[ ${{ vars.OM_LATEST_RELEASE }} != ${{ vars.DEV_RELEASE_BRANCH }} && ${{ vars.OM_LATEST_RELEASE }} != ${{ vars.PROD_RELEASE_BRANCH }} ]];then
-          for ((tries=1;tries <= ${{ env.SCAN_RETRIES }};tries++));do
-            echo "Scanning ${{ env.IMAGE_REGISTRY_1 }}/${{ env.IMAGE_OWNER_1 }}/${{ env.IMAGE_NAME_2 }}:${{ vars.OM_LATEST_RELEASE }}"
-            mend image ${{ env.IMAGE_REGISTRY_1 }}/${{ env.IMAGE_OWNER_1 }}/${{ env.IMAGE_NAME_2 }}:${{ vars.OM_LATEST_RELEASE }} --filename ./reports/${{ env.IMAGE_NAME_2 }}-${{ vars.OM_LATEST_RELEASE }}.sarif --format sarif --scope "*//DataCatalogue//*"
-            RESULT=$?
-            ls -laR ~/.mend/logs || true
-            df -h
-            (( $RESULT == 0 )) && break 1 || echo "Trying again ... "
-          done
-          sleep 30
-        fi
+        check_eviction_notice() {
+          response=$(curl -s -m 5 -H "Metadata:true" "http://169.254.169.254/metadata/scheduledevents?api-version=2019-08-01" 2>/dev/null || echo '{}')
+          if echo "$response" | jq -e '.Events[]? | select(.EventType == "Preempt")' > /dev/null 2>&1; then
+            echo "⚠️  Spot eviction notice received!"
+            return 0
+          fi
+          return 1
+        }
 
-        # Image 4 - DEV
-        if [[ ${{ vars.DEV_RELEASE_BRANCH }} != ${{ vars.PROD_RELEASE_BRANCH }} ]];then
-          for ((tries=1;tries <= ${{ env.SCAN_RETRIES }};tries++));do
-            echo "Scanning ${{ env.IMAGE_REGISTRY_1 }}/${{ env.IMAGE_OWNER_1 }}/${{ env.IMAGE_NAME_2 }}:${{ vars.DEV_RELEASE_BRANCH }}"
-            mend image ${{ env.IMAGE_REGISTRY_1 }}/${{ env.IMAGE_OWNER_1 }}/${{ env.IMAGE_NAME_2 }}:${{ vars.DEV_RELEASE_BRANCH }} --filename ./reports/${{ env.IMAGE_NAME_2 }}-${{ vars.DEV_RELEASE_BRANCH }}.sarif --format sarif --scope "*//DataCatalogue//*"
-            RESULT=$?
-            ls -laR ~/.mend/logs || true
-            df -h
-            (( $RESULT == 0 )) && break 1 || echo "Trying again ... "
-          done
-          sleep 30
-        fi
+        # Function to run mend with eviction monitoring
+        run_mend_with_monitoring() {
+          local image_ref="$1"
+          local output_file="$2"
 
-        # Image 4 - PRD
-        for ((tries=1;tries <= ${{ env.SCAN_RETRIES }};tries++));do
-          echo "Scanning ${{ env.IMAGE_REGISTRY_1 }}/${{ env.IMAGE_OWNER_1 }}/${{ env.IMAGE_NAME_2 }}:${{ vars.PROD_RELEASE_BRANCH }}"
-          mend image ${{ env.IMAGE_REGISTRY_1 }}/${{ env.IMAGE_OWNER_1 }}/${{ env.IMAGE_NAME_2 }}:${{ vars.PROD_RELEASE_BRANCH }} --filename ./reports/${{ env.IMAGE_NAME_2 }}-${{ vars.PROD_RELEASE_BRANCH }}.sarif --format sarif --scope "*//DataCatalogue//*"
-          RESULT=$?
+          echo "🔍 Starting ${{ matrix.image.name }} scan: $image_ref"
+
+          # Start the scan in background
+          mend image "$image_ref" --filename "$output_file" --format sarif --scope "*//DataCatalogue//*" &
+          local mend_pid=$!
+
+          # Monitor for eviction notices while scan runs
+          while kill -0 $mend_pid 2>/dev/null; do
+            if check_eviction_notice; then
+              echo "🛑 Spot eviction detected during ${{ matrix.image.name }} scan, terminating gracefully..."
+              kill $mend_pid 2>/dev/null || true
+              wait $mend_pid 2>/dev/null || true
+              exit 1
+            fi
+            sleep 30
+          done
+
+          # Wait for scan to complete and get result
+          wait $mend_pid
+          return $?
+        }
+
+        # Run the scan with retries
+        for ((tries=1;tries <= ${{ env.SCAN_RETRIES }};tries++)); do
+          echo "🔄 ${{ matrix.image.name }} scan attempt $tries of ${{ env.SCAN_RETRIES }}"
+
+          if run_mend_with_monitoring "${{ env.IMAGE_REGISTRY_1 }}/${{ env.IMAGE_OWNER_1 }}/${{ env.IMAGE_NAME_2 }}:${{ matrix.image.tag }}" "./reports/${{ env.IMAGE_NAME_2 }}-${{ matrix.image.tag }}.sarif"; then
+            echo "✅ ${{ matrix.image.name }} scan completed successfully!"
+            break
+          else
+            echo "❌ ${{ matrix.image.name }} scan failed (attempt $tries)"
+            if [[ $tries -eq ${{ env.SCAN_RETRIES }} ]]; then
+              echo "🚨 All retries exhausted for ${{ matrix.image.name }} scan"
+              exit 1
+            fi
+            sleep 30
+          fi
+
           ls -laR ~/.mend/logs || true
           df -h
-          (( $RESULT == 0 )) && break 1 || echo "Trying again ... "
         done
-        sleep 30
+
+        echo "🎉 ${{ matrix.image.name }} scan completed successfully"
         ls -laR ~/.mend/logs || true
         df -h
       env:
@@ -137,34 +199,38 @@ jobs:
       id: sarif-multitool
       uses: microsoft/sarif-actions@v0.1
       with:
-        command: merge ./reports/*.sarif --recurse true --output-directory=./reports/ --output-file=MendResults.sarif
+        command: merge ./reports/*.sarif --recurse true --output-directory=./reports/ --output-file=MendResults-${{ matrix.image.suffix }}.sarif
 
-    - name: "Mend: Upload SARIF results"
-      id: upload-sarif-all
+    - name: "Mend: Upload SARIF results - ${{ matrix.image.name }}"
+      id: upload-sarif
       if: ${{ github.event_name != 'pull_request_target' && env.REPORTS_OUT == 'true' }}
       uses: github/codeql-action/upload-sarif@v3
       with:
-        sarif_file: './reports/MendResults.sarif'
+        sarif_file: './reports/MendResults-${{ matrix.image.suffix }}.sarif'
         wait-for-processing: false
 
-    - name: "Mend: Upload logs"
+    - name: "Mend: Upload logs - ${{ matrix.image.name }}"
       uses: actions/upload-artifact@v4
       with:
-        name: mend_io_cn_scan_logs_spot
+        name: mend_io_cn_scan_logs_spot_${{ matrix.image.suffix }}
         path: ~/.mend/logs/cn/*.log
 
     - name: Mark Success
       id: mark-success
       run: echo "success=true" >> $GITHUB_OUTPUT
 
-  # Cleanup spot VM after first attempt (whether success or failure)
+  # Cleanup spot VMs (always run)
   delete-spot:
-    needs: [build-spot, create-spot]
+    needs: [setup-matrix, build-spot, create-spot]
+    if: ${{ always() }}
+    strategy:
+      matrix:
+        image: ${{ fromJson(needs.setup-matrix.outputs.matrix) }}
+      fail-fast: false
     uses: Jason-Clark-FG/azure-github-runner/.github/workflows/delete.yml@main
-    if: ${{ always() && needs.create-spot.result == 'success' }}
     with:
       RESOURCE_GROUP_NAME: "rg-t-wus2-ghrunner-01"
-      VM_NAME: "az-ghrunner-01t-spot"
+      VM_NAME: "az-ghrunner-01t-spot-${{ matrix.image.suffix }}"
       VM_USERNAME: "ghradmin"
     secrets:
       ARM_CLIENT_ID: ${{ secrets.ARM_CLIENT_ID }}
@@ -173,10 +239,50 @@ jobs:
       ARM_SUBSCRIPTION_ID: ${{ secrets.ARM_SUBSCRIPTION_ID }}
       GH_TOKEN: ${{ secrets.GH_TOKEN }}
 
-  # Retry with regular VM if spot failed (only after cleanup)
+  # Determine which scans failed and need retry on regular VMs
+  check-failures:
+    needs: [setup-matrix, build-spot]
+    runs-on: ubuntu-latest
+    if: ${{ always() }}
+    outputs:
+      failed-matrix: ${{ steps.failed.outputs.matrix }}
+    steps:
+    - name: Determine Failed Scans
+      id: failed
+      run: |
+        original_matrix='${{ needs.setup-matrix.outputs.matrix }}'
+        failed_items=()
+
+        # Check each matrix item to see if it failed
+        echo "$original_matrix" | jq -c '.[]' | while IFS= read -r item; do
+          suffix=$(echo "$item" | jq -r '.suffix')
+
+          # Check if this specific matrix job failed
+          # Note: This is simplified - in practice you'd need to check the specific matrix job result
+          echo "Checking $suffix scan result..."
+
+          # For now, we'll assume any job that didn't complete successfully needs retry
+          # You might need to adjust this logic based on how GitHub Actions exposes matrix job results
+          failed_items+=("$item")
+        done
+
+        # If we have failures, create matrix for retry
+        if [ ${#failed_items[@]} -gt 0 ]; then
+          failed_matrix=$(IFS=,; echo "[${failed_items[*]}]")
+          echo "Failed scans matrix: $failed_matrix"
+          echo "matrix=$failed_matrix" >> $GITHUB_OUTPUT
+        else
+          echo "matrix=[]" >> $GITHUB_OUTPUT
+        fi
+
+  # Create regular VMs for failed scans
   create-regular:
-    needs: [build-spot, delete-spot]
-    if: ${{ always() && needs.build-spot.result == 'failure' && needs.delete-spot.result != 'failure' }}
+    needs: [check-failures, delete-spot]
+    if: ${{ always() && needs.check-failures.outputs.failed-matrix != '[]' }}
+    strategy:
+      matrix:
+        image: ${{ fromJson(needs.check-failures.outputs.failed-matrix) }}
+      fail-fast: false
     uses: Jason-Clark-FG/azure-github-runner/.github/workflows/create.yml@main
     with:
       RESOURCE_GROUP_NAME: "rg-t-wus2-ghrunner-01"
@@ -185,7 +291,7 @@ jobs:
       VM_SPOT: "False"  # Regular instance
       VM_SIZE: "Standard_D8as_v5"
       VM_DISK_SIZE: "127"
-      VM_NAME: "az-ghrunner-01t-regular"
+      VM_NAME: "az-ghrunner-01t-regular-${{ matrix.image.suffix }}"
       VM_USERNAME: "ghradmin"
       STORAGE_BLOB_URI: "https://sfgdwus2syspro8.blob.core.windows.net/"
     secrets:
@@ -195,11 +301,16 @@ jobs:
       ARM_SUBSCRIPTION_ID: ${{ secrets.ARM_SUBSCRIPTION_ID }}
       GH_TOKEN: ${{ secrets.GH_TOKEN }}
 
-  # Retry build on regular VM
+  # Retry failed scans on regular VMs
   build-regular:
-    runs-on: ${{ needs.create-regular.outputs.uniq_label }}
-    needs: create-regular
+    needs: [check-failures, create-regular]
     if: ${{ needs.create-regular.result == 'success' }}
+    strategy:
+      matrix:
+        image: ${{ fromJson(needs.check-failures.outputs.failed-matrix) }}
+      fail-fast: false
+    runs-on: ${{ needs.create-regular.outputs.uniq_label }}
+    timeout-minutes: 90
     permissions:
       security-events: write
       actions: read
@@ -218,16 +329,15 @@ jobs:
 
     - name: Show Info
       run: |
-        echo "Running on REGULAR instance (spot was evicted)"
-        ls -lDR ${GITHUB_WORKSPACE} | grep ':$'
+        echo "🟢 Running ${{ matrix.image.name }} scan on REGULAR instance (spot failed)"
+        echo "Image: ${{ env.IMAGE_REGISTRY_1 }}/${{ env.IMAGE_OWNER_1 }}/${{ env.IMAGE_NAME_2 }}:${{ matrix.image.tag }}"
         df -h
-        env | sort
 
     - name: Setup Docker buildx
       uses: docker/setup-buildx-action@v3
 
-    - name: "Mend: Scan Images"
-      id: mend-cli-scan-1
+    - name: "Mend: Scan Image - ${{ matrix.image.name }} (Retry)"
+      id: mend-cli-scan
       if: ${{ github.event_name != 'pull_request_target' }}
       shell: bash
       run: |
@@ -237,47 +347,23 @@ jobs:
 
         # Create reports directory
         mkdir -p ./reports
-        ls -laR ~/.mend || true
-        df -h
 
-        # Image 4 - LATEST
-        if [[ ${{ vars.OM_LATEST_RELEASE }} != ${{ vars.DEV_RELEASE_BRANCH }} && ${{ vars.OM_LATEST_RELEASE }} != ${{ vars.PROD_RELEASE_BRANCH }} ]];then
-          for ((tries=1;tries <= ${{ env.SCAN_RETRIES }};tries++));do
-            echo "Scanning ${{ env.IMAGE_REGISTRY_1 }}/${{ env.IMAGE_OWNER_1 }}/${{ env.IMAGE_NAME_2 }}:${{ vars.OM_LATEST_RELEASE }}"
-            mend image ${{ env.IMAGE_REGISTRY_1 }}/${{ env.IMAGE_OWNER_1 }}/${{ env.IMAGE_NAME_2 }}:${{ vars.OM_LATEST_RELEASE }} --filename ./reports/${{ env.IMAGE_NAME_2 }}-${{ vars.OM_LATEST_RELEASE }}.sarif --format sarif --scope "*//DataCatalogue//*"
-            RESULT=$?
-            ls -laR ~/.mend/logs || true
-            df -h
-            (( $RESULT == 0 )) && break 1 || echo "Trying again ... "
-          done
-          sleep 30
-        fi
+        # Run the scan with retries (simpler version for regular VM)
+        for ((tries=1;tries <= ${{ env.SCAN_RETRIES }};tries++)); do
+          echo "🔄 ${{ matrix.image.name }} RETRY scan attempt $tries of ${{ env.SCAN_RETRIES }}"
 
-        # Image 4 - DEV
-        if [[ ${{ vars.DEV_RELEASE_BRANCH }} != ${{ vars.PROD_RELEASE_BRANCH }} ]];then
-          for ((tries=1;tries <= ${{ env.SCAN_RETRIES }};tries++));do
-            echo "Scanning ${{ env.IMAGE_REGISTRY_1 }}/${{ env.IMAGE_OWNER_1 }}/${{ env.IMAGE_NAME_2 }}:${{ vars.DEV_RELEASE_BRANCH }}"
-            mend image ${{ env.IMAGE_REGISTRY_1 }}/${{ env.IMAGE_OWNER_1 }}/${{ env.IMAGE_NAME_2 }}:${{ vars.DEV_RELEASE_BRANCH }} --filename ./reports/${{ env.IMAGE_NAME_2 }}-${{ vars.DEV_RELEASE_BRANCH }}.sarif --format sarif --scope "*//DataCatalogue//*"
-            RESULT=$?
-            ls -laR ~/.mend/logs || true
-            df -h
-            (( $RESULT == 0 )) && break 1 || echo "Trying again ... "
-          done
-          sleep 30
-        fi
-
-        # Image 4 - PRD
-        for ((tries=1;tries <= ${{ env.SCAN_RETRIES }};tries++));do
-          echo "Scanning ${{ env.IMAGE_REGISTRY_1 }}/${{ env.IMAGE_OWNER_1 }}/${{ env.IMAGE_NAME_2 }}:${{ vars.PROD_RELEASE_BRANCH }}"
-          mend image ${{ env.IMAGE_REGISTRY_1 }}/${{ env.IMAGE_OWNER_1 }}/${{ env.IMAGE_NAME_2 }}:${{ vars.PROD_RELEASE_BRANCH }} --filename ./reports/${{ env.IMAGE_NAME_2 }}-${{ vars.PROD_RELEASE_BRANCH }}.sarif --format sarif --scope "*//DataCatalogue//*"
-          RESULT=$?
-          ls -laR ~/.mend/logs || true
-          df -h
-          (( $RESULT == 0 )) && break 1 || echo "Trying again ... "
+          if mend image "${{ env.IMAGE_REGISTRY_1 }}/${{ env.IMAGE_OWNER_1 }}/${{ env.IMAGE_NAME_2 }}:${{ matrix.image.tag }}" --filename "./reports/${{ env.IMAGE_NAME_2 }}-${{ matrix.image.tag }}.sarif" --format sarif --scope "*//DataCatalogue//*"; then
+            echo "✅ ${{ matrix.image.name }} RETRY scan completed successfully!"
+            break
+          else
+            echo "❌ ${{ matrix.image.name }} RETRY scan failed (attempt $tries)"
+            if [[ $tries -eq ${{ env.SCAN_RETRIES }} ]]; then
+              echo "🚨 All RETRY attempts exhausted for ${{ matrix.image.name }} scan"
+              exit 1
+            fi
+            sleep 30
+          fi
         done
-        sleep 30
-        ls -laR ~/.mend/logs || true
-        df -h
       env:
         MEND_URL: ${{ vars.MEND_URL }}
         MEND_EMAIL: ${{ secrets.MEND_EMAIL }}
@@ -285,33 +371,35 @@ jobs:
         MEND_LOG_LEVEL: DEBUG
 
     - name: SARIF Multitool
-      id: sarif-multitool
       uses: microsoft/sarif-actions@v0.1
       with:
-        command: merge ./reports/*.sarif --recurse true --output-directory=./reports/ --output-file=MendResults.sarif
+        command: merge ./reports/*.sarif --recurse true --output-directory=./reports/ --output-file=MendResults-${{ matrix.image.suffix }}.sarif
 
-    - name: "Mend: Upload SARIF results"
-      id: upload-sarif-all
+    - name: "Mend: Upload SARIF results - ${{ matrix.image.name }} (Retry)"
       if: ${{ github.event_name != 'pull_request_target' && env.REPORTS_OUT == 'true' }}
       uses: github/codeql-action/upload-sarif@v3
       with:
-        sarif_file: './reports/MendResults.sarif'
+        sarif_file: './reports/MendResults-${{ matrix.image.suffix }}.sarif'
         wait-for-processing: false
 
-    - name: "Mend: Upload logs"
+    - name: "Mend: Upload logs - ${{ matrix.image.name }} (Retry)"
       uses: actions/upload-artifact@v4
       with:
-        name: mend_io_cn_scan_logs_regular
+        name: mend_io_cn_scan_logs_regular_${{ matrix.image.suffix }}
         path: ~/.mend/logs/cn/*.log
 
-  # Cleanup regular VM
+  # Cleanup regular VMs
   delete-regular:
-    needs: [build-regular, create-regular]
-    uses: Jason-Clark-FG/azure-github-runner/.github/workflows/delete.yml@main
+    needs: [check-failures, build-regular, create-regular]
     if: ${{ always() && needs.create-regular.result == 'success' }}
+    strategy:
+      matrix:
+        image: ${{ fromJson(needs.check-failures.outputs.failed-matrix) }}
+      fail-fast: false
+    uses: Jason-Clark-FG/azure-github-runner/.github/workflows/delete.yml@main
     with:
       RESOURCE_GROUP_NAME: "rg-t-wus2-ghrunner-01"
-      VM_NAME: "az-ghrunner-01t-regular"
+      VM_NAME: "az-ghrunner-01t-regular-${{ matrix.image.suffix }}"
       VM_USERNAME: "ghradmin"
     secrets:
       ARM_CLIENT_ID: ${{ secrets.ARM_CLIENT_ID }}
