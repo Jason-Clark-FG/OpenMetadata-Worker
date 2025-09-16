@@ -57,7 +57,8 @@ jobs:
     strategy:
       matrix:
         image: ${{ fromJson(needs.setup-matrix.outputs.matrix) }}
-      fail-fast: false  # Allow other scans to continue if one fails
+      fail-fast: false
+      max-parallel: 0  # Explicitly allow unlimited parallel jobs
     uses: Jason-Clark-FG/azure-github-runner/.github/workflows/create.yml@main
     with:
       RESOURCE_GROUP_NAME: "rg-t-wus2-ghrunner-01"
@@ -84,8 +85,10 @@ jobs:
       matrix:
         image: ${{ fromJson(needs.setup-matrix.outputs.matrix) }}
       fail-fast: false
-    runs-on: ${{ needs.create-spot.outputs.uniq_label }}
-    timeout-minutes: 90  # ~1 hour per scan + buffer
+      max-parallel: 0  # Explicitly allow unlimited parallel jobs
+    # Use a dynamic runner label based on the matrix suffix
+    runs-on: az-ghrunner-01t-spot-${{ matrix.image.suffix }}
+    timeout-minutes: 120
     outputs:
       success-prod: ${{ matrix.image.suffix == 'prod' && steps.mark-success.outputs.success || '' }}
       success-dev: ${{ matrix.image.suffix == 'dev' && steps.mark-success.outputs.success || '' }}
@@ -97,6 +100,12 @@ jobs:
       packages: write
 
     steps:
+    - name: Debug Parallel Execution
+      run: |
+        echo "🚀 Starting parallel scan for ${{ matrix.image.name }} at $(date)"
+        echo "Runner: $(hostname)"
+        echo "Matrix suffix: ${{ matrix.image.suffix }}"
+
     - name: Checkout Self
       uses: actions/checkout@v4
 
@@ -313,7 +322,7 @@ jobs:
         image: ${{ fromJson(needs.check-failures.outputs.failed-matrix) }}
       fail-fast: false
     runs-on: ${{ needs.create-regular.outputs.uniq_label }}
-    timeout-minutes: 90
+    timeout-minutes: 120
     permissions:
       security-events: write
       actions: read
