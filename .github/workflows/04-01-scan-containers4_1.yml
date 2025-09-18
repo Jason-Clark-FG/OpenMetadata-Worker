@@ -34,16 +34,16 @@ jobs:
         matrix_items=()
 
         # Always scan PROD
-        matrix_items+=('{"tag":"${{ vars.PROD_RELEASE_BRANCH }}","suffix":"prod","name":"Production"}')
+        matrix_items+=('{"tag":"${{ vars.PROD_RELEASE_BRANCH }}","suffix":"prod","name":"Production","label":"spot-prod-$(shuf -er -n8  {a..z} | paste -sd "")"}')
 
         # Scan DEV if different from PROD
         if [[ "${{ vars.DEV_RELEASE_BRANCH }}" != "${{ vars.PROD_RELEASE_BRANCH }}" ]]; then
-          matrix_items+=('{"tag":"${{ vars.DEV_RELEASE_BRANCH }}","suffix":"dev","name":"Development"}')
+          matrix_items+=('{"tag":"${{ vars.DEV_RELEASE_BRANCH }}","suffix":"dev","name":"Development","label":"spot-dev-$(shuf -er -n8  {a..z} | paste -sd "")"}')
         fi
 
         # Scan LATEST if different from both DEV and PROD
         if [[ "${{ vars.OM_LATEST_RELEASE }}" != "${{ vars.DEV_RELEASE_BRANCH }}" && "${{ vars.OM_LATEST_RELEASE }}" != "${{ vars.PROD_RELEASE_BRANCH }}" ]]; then
-          matrix_items+=('{"tag":"${{ vars.OM_LATEST_RELEASE }}","suffix":"latest","name":"Latest"}')
+          matrix_items+=('{"tag":"${{ vars.OM_LATEST_RELEASE }}","suffix":"latest","name":"Latest","label":"spot-latest-$(shuf -er -n8  {a..z} | paste -sd "")"}')
         fi
 
         # Create JSON array
@@ -71,6 +71,7 @@ jobs:
       VM_USERNAME: "ghradmin"
       STORAGE_BLOB_URI: "https://sfgdwus2syspro8.blob.core.windows.net/"
       SSH_KEY_BASENAME: id_rsa-${{ matrix.image.suffix }}
+      RUNNER_LABEL: ${{ matrix.image.label }}
     secrets:
       ARM_CLIENT_ID: ${{ secrets.ARM_CLIENT_ID }}
       ARM_CLIENT_SECRET: ${{ secrets.ARM_CLIENT_SECRET }}
@@ -87,7 +88,7 @@ jobs:
       fail-fast: false
       max-parallel: 0  # Explicitly allow unlimited parallel jobs
     # Use a dynamic runner label based on the matrix suffix
-    runs-on: az-ghrunner-01t-spot-${{ matrix.image.suffix }}
+    runs-on: ${{ matrix.image.label }}
     timeout-minutes: 120
     outputs:
       success-prod: ${{ matrix.image.suffix == 'prod' && steps.mark-success.outputs.success || '' }}
@@ -306,6 +307,7 @@ jobs:
       VM_USERNAME: "ghradmin"
       STORAGE_BLOB_URI: "https://sfgdwus2syspro8.blob.core.windows.net/"
       SSH_KEY_BASENAME: id_rsa-${{ matrix.image.suffix }}
+      RUNNER_LABEL: ${{ matrix.image.label }}
     secrets:
       ARM_CLIENT_ID: ${{ secrets.ARM_CLIENT_ID }}
       ARM_CLIENT_SECRET: ${{ secrets.ARM_CLIENT_SECRET }}
@@ -321,7 +323,7 @@ jobs:
       matrix:
         image: ${{ fromJson(needs.check-failures.outputs.failed-matrix) }}
       fail-fast: false
-    runs-on: ${{ needs.create-regular.outputs.uniq_label }}
+    runs-on: ${{ matrix.image.label }}
     timeout-minutes: 120
     permissions:
       security-events: write
