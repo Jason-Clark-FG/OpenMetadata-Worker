@@ -448,61 +448,9 @@ jobs:
       ARM_SUBSCRIPTION_ID: ${{ secrets.ARM_SUBSCRIPTION_ID }}
       GH_TOKEN: ${{ secrets.GH_TOKEN }}
 
-  # Cleanup orphaned GitHub runners
-  cleanup-runners:
-    needs: [setup-matrix, create-vms, cleanup-vms]
-    # Run after main cleanup to ensure runners are removed even if VM cleanup had issues
-    if: ${{ always() && !contains(needs.create-vms.result, 'failure') && !contains(needs.create-vms.result, 'cancelled') && !contains(needs.create-vms.result, 'skipped') }}
-    runs-on: ubuntu-latest
-    steps:
-    - name: Clean up GitHub Runners
-      run: |
-        echo "🔍 Cleaning up any orphaned GitHub runners from this workflow run"
-
-        # Install GitHub CLI
-        type -p curl >/dev/null || (sudo apt update && sudo apt install curl -y)
-        curl -fsSL https://cli.github.com/packages/githubcli-archive-keyring.gpg | sudo dd of=/usr/share/keyrings/githubcli-archive-keyring.gpg \
-        && sudo chmod go+r /usr/share/keyrings/githubcli-archive-keyring.gpg \
-        && echo "deb [arch=$(dpkg --print-architecture) signed-by=/usr/share/keyrings/githubcli-archive-keyring.gpg] https://cli.github.com/packages stable main" | sudo tee /etc/apt/sources.list.d/github-cli.list > /dev/null \
-        && sudo apt update \
-        && sudo apt install gh -y
-
-        # Authenticate GitHub CLI
-        echo "${{ secrets.GH_TOKEN }}" | gh auth login --with-token
-
-        # Clean up runners matching this workflow's pattern
-        echo "🔍 Checking for runners matching pattern 'az-ghrunner-01t-*'..."
-
-        # Get all self-hosted runners for this repository
-        runners=$(gh api repos/:owner/:repo/actions/runners --jq '.runners[].name' 2>/dev/null || echo "")
-
-        if [[ -n "$runners" ]]; then
-          echo "Found registered runners:"
-          echo "$runners" | while IFS= read -r runner_name; do
-            if [[ -n "$runner_name" && "$runner_name" =~ ^az-ghrunner-01t-.* ]]; then
-              echo "🗑️ Removing runner: $runner_name"
-
-              # Get runner ID
-              runner_id=$(gh api repos/:owner/:repo/actions/runners --jq ".runners[] | select(.name == \"$runner_name\") | .id" 2>/dev/null || echo "")
-
-              if [[ -n "$runner_id" ]]; then
-                if gh api repos/:owner/:repo/actions/runners/$runner_id --method DELETE 2>/dev/null; then
-                  echo "✅ Successfully removed runner: $runner_name (ID: $runner_id)"
-                else
-                  echo "⚠️ Failed to remove runner: $runner_name (ID: $runner_id)"
-                fi
-              else
-                echo "⚠️ Could not find runner ID for: $runner_name"
-              fi
-            fi
-          done
-        else
-          echo "✅ No registered runners found"
-        fi
-
   # Emergency cleanup job that runs if the main cleanup fails or needs additional coverage
   emergency-cleanup:
-    needs: [setup-matrix, create-vms, cleanup-vms, cleanup-runners]
+    needs: [setup-matrix, create-vms, cleanup-vms]
     # Run if cleanup had any issues or if VMs were actually created (covers partial failures)
     if: ${{ always() && !contains(needs.create-vms.result, 'failure') && !contains(needs.create-vms.result, 'cancelled') && !contains(needs.create-vms.result, 'skipped') }}
     runs-on: ubuntu-latest
@@ -533,46 +481,13 @@ jobs:
 
         echo "🔍 Scanning resource group $resource_group for any remaining resources..."
 
-        # Install GitHub CLI for runner cleanup and force destroy option
+        # Install GitHub CLI for force destroy option
         type -p curl >/dev/null || (sudo apt update && sudo apt install curl -y)
         curl -fsSL https://cli.github.com/packages/githubcli-archive-keyring.gpg | sudo dd of=/usr/share/keyrings/githubcli-archive-keyring.gpg \
         && sudo chmod go+r /usr/share/keyrings/githubcli-archive-keyring.gpg \
         && echo "deb [arch=$(dpkg --print-architecture) signed-by=/usr/share/keyrings/githubcli-archive-keyring.gpg] https://cli.github.com/packages stable main" | sudo tee /etc/apt/sources.list.d/github-cli.list > /dev/null \
         && sudo apt update \
         && sudo apt install gh -y
-
-        # Authenticate GitHub CLI
-        echo "${{ secrets.GH_TOKEN }}" | gh auth login --with-token
-
-        # Clean up orphaned GitHub runners first
-        echo "🔍 Checking for orphaned GitHub runners matching pattern 'az-ghrunner-01t-*'..."
-
-        # Get all self-hosted runners for this repository
-        runners=$(gh api repos/:owner/:repo/actions/runners --jq '.runners[].name' 2>/dev/null || echo "")
-
-        if [[ -n "$runners" ]]; then
-          echo "Found registered runners:"
-          echo "$runners" | while IFS= read -r runner_name; do
-            if [[ -n "$runner_name" && "$runner_name" =~ ^az-ghrunner-01t-.* ]]; then
-              echo "🗑️ Removing orphaned runner: $runner_name"
-
-              # Get runner ID
-              runner_id=$(gh api repos/:owner/:repo/actions/runners --jq ".runners[] | select(.name == \"$runner_name\") | .id" 2>/dev/null || echo "")
-
-              if [[ -n "$runner_id" ]]; then
-                if gh api repos/:owner/:repo/actions/runners/$runner_id --method DELETE 2>/dev/null; then
-                  echo "✅ Successfully removed runner: $runner_name (ID: $runner_id)"
-                else
-                  echo "⚠️ Failed to remove runner: $runner_name (ID: $runner_id)"
-                fi
-              else
-                echo "⚠️ Could not find runner ID for: $runner_name"
-              fi
-            fi
-          done
-        else
-          echo "✅ No registered runners found"
-        fi
 
         # Clone the azure-github-runner repo to get the latest scripts
         git clone https://github.com/Jason-Clark-FG/azure-github-runner.git /tmp/azure-github-runner
@@ -701,7 +616,7 @@ jobs:
 
   # Create regular VMs for failed spot scans (only if spot failed and we're not cancelled)
   create-retry-vms:
-    needs: [check-spot-failures, cleanup-vms, cleanup-runners, emergency-cleanup]
+    needs: [check-spot-failures, cleanup-vms, emergency-cleanup]
     if: ${{ !cancelled() && needs.check-spot-failures.outputs.has-failures == 'true' && (needs.cleanup-vms.result == 'success' || needs.emergency-cleanup.result == 'success') }}
     strategy:
       matrix:
@@ -877,7 +792,7 @@ jobs:
 
   # Final resource group cleanup (after all VMs are deleted)
   cleanup-resource-group:
-    needs: [setup-matrix, create-vms, cleanup-vms, cleanup-runners, emergency-cleanup, cleanup-retry-vms]
+    needs: [setup-matrix, create-vms, cleanup-vms, emergency-cleanup, cleanup-retry-vms]
     # Only run if we created VMs and either normal cleanup succeeded or emergency cleanup ran
     if: ${{ always() && !contains(needs.create-vms.result, 'failure') && !contains(needs.create-vms.result, 'cancelled') && (needs.cleanup-vms.result == 'success' || needs.emergency-cleanup.result == 'success' || needs.cleanup-retry-vms.result == 'success') }}
     runs-on: ubuntu-latest
@@ -928,7 +843,7 @@ jobs:
 
   # Final status report
   workflow-summary:
-    needs: [setup-matrix, create-vms, build-and-scan, cleanup-vms, cleanup-runners, emergency-cleanup, check-spot-failures, create-retry-vms, retry-on-regular, cleanup-retry-vms, cleanup-resource-group]
+    needs: [setup-matrix, create-vms, build-and-scan, cleanup-vms, emergency-cleanup, check-spot-failures, create-retry-vms, retry-on-regular, cleanup-retry-vms, cleanup-resource-group]
     if: ${{ always() }}
     runs-on: ubuntu-latest
     steps:
