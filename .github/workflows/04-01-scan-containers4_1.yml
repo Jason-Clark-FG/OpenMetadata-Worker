@@ -66,7 +66,7 @@ jobs:
             '. += [{"tag": $tag, "suffix": $suffix, "name": $name, "label": $label}]')
         fi
         echo "Generated matrix: $matrix_json"
-        
+
         # Enhanced JSON validation with detailed debugging
         if echo "$matrix_json" | jq empty 2>/dev/null; then
           echo "✅ JSON validation successful"
@@ -152,6 +152,15 @@ jobs:
       packages: write
 
     steps:
+    - name: Wait for Runner Registration
+      timeout-minutes: 5  # Short timeout just for runner check
+      run: |
+        echo "🔍 Verifying runner availability for ${{ matrix.image.name }} scan"
+        echo "Runner: $(hostname)"
+        echo "Matrix suffix: ${{ matrix.image.suffix }}"
+        echo "Runner label: ${{ matrix.image.label }}"
+        echo "System ready at $(date)"
+
     - name: Debug Parallel Execution
       run: |
         echo "🚀 Starting parallel scan for ${{ matrix.image.name }} at $(date)"
@@ -315,10 +324,10 @@ jobs:
       run: |
         original_matrix='${{ needs.setup-matrix.outputs.matrix }}'
         echo "Original matrix: $original_matrix"
-        
+
         # Initialize empty array for failed items
         failed_matrix=$(jq -n '[]')
-        
+
         # Check each matrix item to see if it failed
         while IFS= read -r item; do
           suffix=$(echo "$item" | jq -r '.suffix')
