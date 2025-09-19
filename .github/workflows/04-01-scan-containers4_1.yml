@@ -59,13 +59,14 @@ jobs:
             vm_size="Standard_D4as_v5"
           fi
 
-          # Default to false for spot if not specified (safer for manual runs)
-          if [[ -z "$use_spot" || "$use_spot" == "false" ]]; then
-            use_spot="false"
-            echo "Manual dispatch: Using regular VMs with size $vm_size"
-          else
+          # Handle spot VM option - GitHub Actions passes unchecked booleans as empty string
+          # Only use spot VMs if explicitly set to "true"
+          if [[ "$use_spot" == "true" ]]; then
             use_spot="true"
             echo "Manual dispatch: Using spot VMs with size $vm_size"
+          else
+            use_spot="false"
+            echo "Manual dispatch: Using regular VMs with size $vm_size"
           fi
         else
           # Automated trigger (workflow_run) - use larger spot VMs for better performance
