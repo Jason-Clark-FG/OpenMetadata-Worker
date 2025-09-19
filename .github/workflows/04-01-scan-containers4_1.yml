@@ -264,9 +264,48 @@ jobs:
       if: ${{ github.event_name != 'pull_request_target' }}
       shell: bash
       run: |
-        # Install Mend
-        curl -fsSL https://downloads.mend.io/cli/linux_amd64/mend -o /usr/local/bin/mend && chmod +x /usr/local/bin/mend
-        mend version
+        # Install Mend with proper error checking and directory creation
+        echo "🔧 Installing Mend CLI..."
+
+        # Ensure destination directory exists and is writable
+        sudo mkdir -p /usr/local/bin
+
+        # Check if we have write permissions, create temp location if not
+        if [[ ! -w /usr/local/bin ]]; then
+          echo "⚠️ No write access to /usr/local/bin, using sudo for installation"
+          temp_mend=$(mktemp)
+
+          if curl -fsSL https://downloads.mend.io/cli/linux_amd64/mend -o "$temp_mend"; then
+            sudo mv "$temp_mend" /usr/local/bin/mend
+            sudo chmod +x /usr/local/bin/mend
+            echo "✅ Mend CLI installed successfully with sudo"
+          else
+            echo "❌ Failed to download Mend CLI"
+            exit 1
+          fi
+        else
+          # Direct installation
+          if curl -fsSL https://downloads.mend.io/cli/linux_amd64/mend -o /usr/local/bin/mend; then
+            chmod +x /usr/local/bin/mend
+            echo "✅ Mend CLI installed successfully"
+          else
+            echo "❌ Failed to download Mend CLI"
+            exit 1
+          fi
+        fi
+
+        # Verify installation
+        echo "🔍 Verifying Mend installation..."
+        if command -v mend >/dev/null 2>&1; then
+          mend version
+          echo "✅ Mend CLI is working properly"
+        else
+          echo "❌ Mend CLI installation verification failed"
+          echo "PATH: $PATH"
+          echo "Contents of /usr/local/bin:"
+          ls -la /usr/local/bin/ | grep mend || echo "No mend binary found"
+          exit 1
+        fi
 
         # Create reports directory
         mkdir -p ./reports
@@ -279,10 +318,23 @@ jobs:
             return 1  # Not a spot VM, no eviction possible
           fi
 
-          response=$(curl -s -m 5 -H "Metadata:true" "http://169.254.169.254/metadata/scheduledevents?api-version=2019-08-01" 2>/dev/null || echo '{}')
-          if echo "$response" | jq -e '.Events[]? | select(.EventType == "Preempt")' > /dev/null 2>&1; then
-            echo "⚠️ Spot eviction notice received!"
-            return 0
+          # Use curl with better error handling and timeout
+          response=$(curl -s -m 5 -f --connect-timeout 3 --max-time 5 \
+            -H "Metadata:true" \
+            "http://169.254.169.254/metadata/scheduledevents?api-version=2019-08-01" \
+            2>/dev/null || echo '{"Events":[]}')
+
+          # Validate response is valid JSON before processing
+          if echo "$response" | jq empty 2>/dev/null; then
+            if echo "$response" | jq -e '.Events[]? | select(.EventType == "Preempt")' > /dev/null 2>&1; then
+              echo "⚠️ Spot eviction notice received!"
+              echo "Eviction details: $response"
+              return 0
+            fi
+          else
+            # If we can't reach metadata service or get invalid JSON, assume no eviction
+            # This prevents false positives when metadata service is unreachable
+            echo "🔍 Unable to check eviction status (metadata service unreachable)"
           fi
           return 1
         }
@@ -382,6 +434,7 @@ jobs:
       # Sequential cleanup to avoid race conditions and deletion conflicts
       max-parallel: 1
     uses: Jason-Clark-FG/azure-github-runner/.github/workflows/delete.yml@main
+    continue-on-error: true  # Don't fail the workflow if individual deletions fail
     with:
       RESOURCE_GROUP_NAME: "rg-t-wus2-ghrunner-01"
       VM_NAME: "az-ghrunner-01t-${{ needs.setup-matrix.outputs.use_spot == 'true' && 'spot' || 'regular' }}-${{ matrix.image.suffix }}"
@@ -394,17 +447,17 @@ jobs:
       ARM_SUBSCRIPTION_ID: ${{ secrets.ARM_SUBSCRIPTION_ID }}
       GH_TOKEN: ${{ secrets.GH_TOKEN }}
 
-  # Emergency cleanup job that runs if the main cleanup fails
+  # Emergency cleanup job that runs if the main cleanup fails or needs additional coverage
   emergency-cleanup:
     needs: [setup-matrix, create-vms, cleanup-vms]
-    # Run if cleanup failed and VMs were actually created
-    if: ${{ always() && needs.cleanup-vms.result == 'failure' && !contains(needs.create-vms.result, 'failure') }}
+    # Run if cleanup had any issues or if VMs were actually created (covers partial failures)
+    if: ${{ always() && !contains(needs.create-vms.result, 'failure') && !contains(needs.create-vms.result, 'cancelled') && !contains(needs.create-vms.result, 'skipped') }}
     runs-on: ubuntu-latest
     steps:
     - name: Emergency VM Cleanup
       run: |
-        echo "🚨 Main cleanup failed, attempting emergency cleanup"
-        echo "This is a fallback to ensure VMs don't get orphaned"
+        echo "🚨 Running emergency cleanup to ensure complete resource cleanup"
+        echo "This runs after normal cleanup to catch any missed resources"
 
         # Install Azure CLI
         curl -sL https://aka.ms/InstallAzureCLIDeb | sudo bash
@@ -417,31 +470,114 @@ jobs:
 
         az account set --subscription "${{ secrets.ARM_SUBSCRIPTION_ID }}"
 
-        # List and delete VMs that match our naming pattern
-        matrix='${{ needs.setup-matrix.outputs.matrix }}'
-        vm_type="${{ needs.setup-matrix.outputs.use_spot == 'true' && 'spot' || 'regular' }}"
+        resource_group="rg-t-wus2-ghrunner-01"
 
-        echo "$matrix" | jq -r '.[] | .suffix' | while read suffix; do
-          vm_name="az-ghrunner-01t-${vm_type}-${suffix}"
-          echo "Checking for VM: $vm_name"
+        # Check if resource group exists first
+        if ! az group show --resource-group "$resource_group" --output none 2>/dev/null; then
+          echo "✅ Resource group $resource_group does not exist (already cleaned up)"
+          exit 0
+        fi
 
-          if az vm show --resource-group "rg-t-wus2-ghrunner-01" --name "$vm_name" --output none 2>/dev/null; then
-            echo "🗑️ Found orphaned VM $vm_name, attempting deletion..."
+        echo "🔍 Scanning resource group $resource_group for any remaining resources..."
 
-            # Force delete VM and all associated resources
-            az vm delete --resource-group "rg-t-wus2-ghrunner-01" --name "$vm_name" --yes --force-deletion || true
+        # Install GitHub CLI for force destroy option
+        type -p curl >/dev/null || (sudo apt update && sudo apt install curl -y)
+        curl -fsSL https://cli.github.com/packages/githubcli-archive-keyring.gpg | sudo dd of=/usr/share/keyrings/githubcli-archive-keyring.gpg \
+        && sudo chmod go+r /usr/share/keyrings/githubcli-archive-keyring.gpg \
+        && echo "deb [arch=$(dpkg --print-architecture) signed-by=/usr/share/keyrings/githubcli-archive-keyring.gpg] https://cli.github.com/packages stable main" | sudo tee /etc/apt/sources.list.d/github-cli.list > /dev/null \
+        && sudo apt update \
+        && sudo apt install gh -y
 
-            # Also try to clean up associated resources
-            az network nsg delete --resource-group "rg-t-wus2-ghrunner-01" --name "${vm_name}-nsg" || true
-            az network public-ip delete --resource-group "rg-t-wus2-ghrunner-01" --name "${vm_name}-ip" || true
-            az network nic delete --resource-group "rg-t-wus2-ghrunner-01" --name "${vm_name}-nic" || true
-            az disk delete --resource-group "rg-t-wus2-ghrunner-01" --name "${vm_name}-disk" --yes || true
+        # Clone the azure-github-runner repo to get the latest scripts
+        git clone https://github.com/Jason-Clark-FG/azure-github-runner.git /tmp/azure-github-runner
+        cd /tmp/azure-github-runner
 
-            echo "✅ Emergency cleanup completed for $vm_name"
-          else
-            echo "✅ VM $vm_name not found (already cleaned up)"
+        # Look for ANY VMs in the resource group that match our pattern
+        echo "🔍 Checking for VMs matching pattern 'az-ghrunner-01t-*'..."
+        orphaned_vms=$(az vm list --resource-group "$resource_group" --query "[?starts_with(name, 'az-ghrunner-01t-')].name" -o tsv 2>/dev/null || true)
+
+        if [[ -n "$orphaned_vms" ]]; then
+          echo "Found VMs that need cleanup:"
+          echo "$orphaned_vms" | while IFS= read -r vm_name; do
+            if [[ -n "$vm_name" ]]; then
+              echo "🗑️ Force destroying VM: $vm_name"
+
+              # Use the enhanced main.sh with --force-destroy to skip SSH cleanup
+              export GITHUB_REPO="${{ github.repository }}"
+              export GH_TOKEN="${{ secrets.GH_TOKEN }}"
+              export RUN_ID="${{ github.run_id }}"
+              export RESOURCE_GROUP_NAME="$resource_group"
+              export VM_NAME="$vm_name"
+              export VM_USERNAME="ghradmin"
+
+              # Use force destroy to skip problematic SSH cleanup
+              if ./main.sh --force-destroy 2>/dev/null; then
+                echo "✅ Successfully force destroyed VM: $vm_name"
+              else
+                echo "⚠️ Force destroy script failed for $vm_name, falling back to direct deletion"
+
+                # Fallback: direct Azure CLI deletion
+                az vm delete --resource-group "$resource_group" --name "$vm_name" --yes --no-wait 2>/dev/null || echo "Direct VM deletion also failed"
+              fi
+            fi
+          done
+        else
+          echo "✅ No VMs found matching pattern 'az-ghrunner-01t-*'"
+        fi
+
+        # Additional manual cleanup for any remaining resources
+        echo ""
+        echo "🧹 Scanning for other orphaned resources..."
+
+        # Clean up any remaining orphaned resources by pattern
+        resource_types=(
+          "vm:az-ghrunner-01t-"
+          "disk:az-ghrunner-01t-"
+          "network nic:az-ghrunner-01t-"
+          "network public-ip:az-ghrunner-01t-"
+          "network nsg:az-ghrunner-01t-"
+        )
+
+        for resource_spec in "${resource_types[@]}"; do
+          IFS=':' read -r resource_type pattern <<< "$resource_spec"
+
+          echo "Checking for ${resource_type} resources with pattern: ${pattern}*"
+
+          case "$resource_type" in
+            "vm")
+              resources=$(az vm list --resource-group "$resource_group" --query "[?starts_with(name, '${pattern}')].name" -o tsv 2>/dev/null || true)
+              ;;
+            "disk")
+              resources=$(az disk list --resource-group "$resource_group" --query "[?starts_with(name, '${pattern}')].name" -o tsv 2>/dev/null || true)
+              ;;
+            "network nic")
+              resources=$(az network nic list --resource-group "$resource_group" --query "[?starts_with(name, '${pattern}')].name" -o tsv 2>/dev/null || true)
+              ;;
+            "network public-ip")
+              resources=$(az network public-ip list --resource-group "$resource_group" --query "[?starts_with(name, '${pattern}')].name" -o tsv 2>/dev/null || true)
+              ;;
+            "network nsg")
+              resources=$(az network nsg list --resource-group "$resource_group" --query "[?starts_with(name, '${pattern}')].name" -o tsv 2>/dev/null || true)
+              ;;
+          esac
+
+          if [[ -n "$resources" ]]; then
+            echo "Found orphaned ${resource_type} resources:"
+            echo "$resources" | while IFS= read -r resource; do
+              if [[ -n "$resource" ]]; then
+                echo "  🗑️ Deleting: $resource"
+                az $resource_type delete --resource-group "$resource_group" --name "$resource" --yes --no-wait 2>/dev/null || echo "    ⚠️ Failed to delete $resource"
+              fi
+            done
           fi
         done
+
+        echo ""
+        echo "✅ Emergency cleanup scan completed"
+
+        # Give Azure some time to process deletions before RG cleanup
+        echo "⏳ Waiting 60 seconds for Azure to process resource deletions..."
+        sleep 60
 
   # Optional: Determine which scans failed and need retry (only if using spot VMs and they failed)
   check-spot-failures:
@@ -545,9 +681,48 @@ jobs:
       if: ${{ github.event_name != 'pull_request_target' }}
       shell: bash
       run: |
-        # Install Mend
-        curl -fsSL https://downloads.mend.io/cli/linux_amd64/mend -o /usr/local/bin/mend && chmod +x /usr/local/bin/mend
-        mend version
+        # Install Mend with proper error checking
+        echo "🔧 Installing Mend CLI for retry scan..."
+
+        # Ensure destination directory exists and is writable
+        sudo mkdir -p /usr/local/bin
+
+        # Check if we have write permissions, create temp location if not
+        if [[ ! -w /usr/local/bin ]]; then
+          echo "⚠️ No write access to /usr/local/bin, using sudo for installation"
+          temp_mend=$(mktemp)
+
+          if curl -fsSL https://downloads.mend.io/cli/linux_amd64/mend -o "$temp_mend"; then
+            sudo mv "$temp_mend" /usr/local/bin/mend
+            sudo chmod +x /usr/local/bin/mend
+            echo "✅ Mend CLI installed successfully with sudo"
+          else
+            echo "❌ Failed to download Mend CLI"
+            exit 1
+          fi
+        else
+          # Direct installation
+          if curl -fsSL https://downloads.mend.io/cli/linux_amd64/mend -o /usr/local/bin/mend; then
+            chmod +x /usr/local/bin/mend
+            echo "✅ Mend CLI installed successfully"
+          else
+            echo "❌ Failed to download Mend CLI"
+            exit 1
+          fi
+        fi
+
+        # Verify installation
+        echo "🔍 Verifying Mend installation..."
+        if command -v mend >/dev/null 2>&1; then
+          mend version
+          echo "✅ Mend CLI is working properly"
+        else
+          echo "❌ Mend CLI installation verification failed"
+          echo "PATH: $PATH"
+          echo "Contents of /usr/local/bin:"
+          ls -la /usr/local/bin/ | grep mend || echo "No mend binary found"
+          exit 1
+        fi
 
         # Create reports directory
         mkdir -p ./reports
@@ -614,9 +789,60 @@ jobs:
       ARM_SUBSCRIPTION_ID: ${{ secrets.ARM_SUBSCRIPTION_ID }}
       GH_TOKEN: ${{ secrets.GH_TOKEN }}
 
+  # Final resource group cleanup (after all VMs are deleted)
+  cleanup-resource-group:
+    needs: [setup-matrix, create-vms, cleanup-vms, emergency-cleanup, cleanup-retry-vms]
+    # Only run if we created VMs and either normal cleanup succeeded or emergency cleanup ran
+    if: ${{ always() && !contains(needs.create-vms.result, 'failure') && !contains(needs.create-vms.result, 'cancelled') && (needs.cleanup-vms.result == 'success' || needs.emergency-cleanup.result == 'success' || needs.cleanup-retry-vms.result == 'success') }}
+    runs-on: ubuntu-latest
+    steps:
+    - name: Delete Resource Group
+      run: |
+        echo "🧹 Final cleanup: Deleting resource group after all VMs are cleaned up"
+
+        # Install Azure CLI
+        curl -sL https://aka.ms/InstallAzureCLIDeb | sudo bash
+
+        # Login to Azure
+        az login --service-principal \
+          --username "${{ secrets.ARM_CLIENT_ID }}" \
+          --password "${{ secrets.ARM_CLIENT_SECRET }}" \
+          --tenant "${{ secrets.ARM_TENANT_ID }}"
+
+        az account set --subscription "${{ secrets.ARM_SUBSCRIPTION_ID }}"
+
+        resource_group="rg-t-wus2-ghrunner-01"
+
+        # Check if resource group exists
+        if az group show --resource-group "$resource_group" --output none 2>/dev/null; then
+          echo "📊 Checking remaining resources before RG deletion..."
+          remaining_resources=$(az resource list --resource-group "$resource_group" --query "length(@)" 2>/dev/null || echo "0")
+
+          if [[ "$remaining_resources" -gt 0 ]]; then
+            echo "⚠️  Found $remaining_resources remaining resources in RG:"
+            az resource list --resource-group "$resource_group" --query "[].{Name:name, Type:type}" --output table 2>/dev/null || true
+            echo "Proceeding with RG deletion anyway (will clean up all remaining resources)..."
+          else
+            echo "✅ Resource group is empty, safe to delete"
+          fi
+
+          echo "🗑️ Deleting resource group: $resource_group"
+          if az group delete --resource-group "$resource_group" --yes --no-wait; then
+            echo "✅ Successfully initiated deletion of resource group: $resource_group"
+            echo "🕐 Resource group deletion is running in the background"
+          else
+            echo "❌ Failed to delete resource group: $resource_group"
+            echo "Manual cleanup required:"
+            echo "  az group delete --resource-group $resource_group --yes"
+            exit 1
+          fi
+        else
+          echo "✅ Resource group $resource_group does not exist (already cleaned up)"
+        fi
+
   # Final status report
   workflow-summary:
-    needs: [setup-matrix, create-vms, build-and-scan, cleanup-vms, emergency-cleanup, check-spot-failures, create-retry-vms, retry-on-regular, cleanup-retry-vms]
+    needs: [setup-matrix, create-vms, build-and-scan, cleanup-vms, emergency-cleanup, check-spot-failures, create-retry-vms, retry-on-regular, cleanup-retry-vms, cleanup-resource-group]
     if: ${{ always() }}
     runs-on: ubuntu-latest
     steps:
@@ -639,6 +865,7 @@ jobs:
         echo "  - create-retry-vms: ${{ needs.create-retry-vms.result }}"
         echo "  - retry-on-regular: ${{ needs.retry-on-regular.result }}"
         echo "  - cleanup-retry-vms: ${{ needs.cleanup-retry-vms.result }}"
+        echo "  - cleanup-resource-group: ${{ needs.cleanup-resource-group.result }}"
         echo ""
 
         # Check for potential issues
