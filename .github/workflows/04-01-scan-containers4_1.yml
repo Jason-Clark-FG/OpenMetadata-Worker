@@ -194,7 +194,7 @@ jobs:
       max-parallel: 0  # Explicitly allow unlimited parallel jobs
     # Use a dynamic runner label based on the matrix suffix
     runs-on: ${{ matrix.image.label }}
-    timeout-minutes: 120
+    timeout-minutes: 180
     outputs:
       success-prod: ${{ matrix.image.suffix == 'prod' && steps.mark-success.outputs.success || '' }}
       success-dev: ${{ matrix.image.suffix == 'dev' && steps.mark-success.outputs.success || '' }}
@@ -650,7 +650,7 @@ jobs:
         image: ${{ fromJson(needs.check-spot-failures.outputs.failed-matrix) }}
       fail-fast: false
     runs-on: retry-${{ matrix.image.label }}
-    timeout-minutes: 120
+    timeout-minutes: 180
     permissions:
       security-events: write
       actions: read
