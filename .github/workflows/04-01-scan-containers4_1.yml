@@ -6,6 +6,21 @@ on:
     types:
       - completed
   workflow_dispatch:
+    inputs:
+      use_spot_vms:
+        description: 'Use spot VMs (uncheck for regular VMs)'
+        required: false
+        type: boolean
+        default: true
+      vm_size:
+        description: 'VM Size'
+        required: false
+        type: choice
+        default: 'Standard_D4as_v5'
+        options:
+          - 'Standard_D4as_v5'
+          - 'Standard_F8s_v2'
+          - 'Standard_D8as_v5'
 
 env:
   IMAGE_REGISTRY_1: docker.getcollate.io
@@ -27,7 +42,41 @@ jobs:
     runs-on: ubuntu-latest
     outputs:
       matrix: ${{ steps.matrix.outputs.matrix }}
+      use_spot: ${{ steps.config.outputs.use_spot }}
+      vm_size: ${{ steps.config.outputs.vm_size }}
     steps:
+    - name: Determine VM Configuration
+      id: config
+      run: |
+        # Determine VM configuration based on trigger type
+        if [[ "${{ github.event_name }}" == "workflow_dispatch" ]]; then
+          # Manual trigger - use user inputs or safer defaults
+          use_spot="${{ github.event.inputs.use_spot_vms }}"
+          vm_size="${{ github.event.inputs.vm_size }}"
+
+          # Default to smaller, more stable VM if not specified
+          if [[ -z "$vm_size" ]]; then
+            vm_size="Standard_D4as_v5"
+          fi
+
+          # Default to false for spot if not specified (safer for manual runs)
+          if [[ -z "$use_spot" || "$use_spot" == "false" ]]; then
+            use_spot="false"
+            echo "Manual dispatch: Using regular VMs with size $vm_size"
+          else
+            use_spot="true"
+            echo "Manual dispatch: Using spot VMs with size $vm_size"
+          fi
+        else
+          # Automated trigger (workflow_run) - use larger spot VMs for better performance
+          use_spot="true"
+          vm_size="Standard_F8s_v2"
+          echo "Automated workflow_run trigger: Using larger spot VMs with size $vm_size for better performance"
+        fi
+
+        echo "use_spot=$use_spot" >> $GITHUB_OUTPUT
+        echo "vm_size=$vm_size" >> $GITHUB_OUTPUT
+
     - name: Generate Matrix
       id: matrix
       run: |
@@ -97,13 +146,16 @@ jobs:
       run: |
         echo "Matrix output from setup-matrix job:"
         echo '${{ needs.setup-matrix.outputs.matrix }}'
+        echo "VM Configuration:"
+        echo "Use Spot: ${{ needs.setup-matrix.outputs.use_spot }}"
+        echo "VM Size: ${{ needs.setup-matrix.outputs.vm_size }}"
         echo "Parsing with jq:"
         echo '${{ needs.setup-matrix.outputs.matrix }}' | jq .
         echo "Matrix items count:"
         echo '${{ needs.setup-matrix.outputs.matrix }}' | jq length
 
-  # Create spot VMs for each image scan
-  create-spot:
+  # Create VMs for each image scan (spot or regular based on configuration)
+  create-vms:
     needs: [setup-matrix, debug-matrix]
     strategy:
       matrix:
@@ -115,10 +167,10 @@ jobs:
       RESOURCE_GROUP_NAME: "rg-t-wus2-ghrunner-01"
       LOCATION: "westus2"
       VM_IMAGE: ${{ vars.VM_IMAGE_REF }}
-      VM_SPOT: "True"
-      VM_SIZE: "Standard_D8as_v5"
+      VM_SPOT: ${{ needs.setup-matrix.outputs.use_spot }}
+      VM_SIZE: ${{ needs.setup-matrix.outputs.vm_size }}
       VM_DISK_SIZE: "127"
-      VM_NAME: "az-ghrunner-01t-spot-${{ matrix.image.suffix }}"
+      VM_NAME: "az-ghrunner-01t-${{ needs.setup-matrix.outputs.use_spot == 'true' && 'spot' || 'regular' }}-${{ matrix.image.suffix }}"
       VM_USERNAME: "ghradmin"
       STORAGE_BLOB_URI: "https://sfgdwus2syspro8.blob.core.windows.net/"
       SSH_KEY_BASENAME: id_rsa-${{ matrix.image.suffix }}
@@ -130,9 +182,11 @@ jobs:
       ARM_SUBSCRIPTION_ID: ${{ secrets.ARM_SUBSCRIPTION_ID }}
       GH_TOKEN: ${{ secrets.GH_TOKEN }}
 
-  # Try to build on spot VMs
-  build-spot:
-    needs: [setup-matrix, debug-matrix, create-spot]
+  # Build and scan images
+  build-and-scan:
+    needs: [setup-matrix, debug-matrix, create-vms]
+    # Only run if not cancelled and VMs were created successfully
+    if: ${{ !cancelled() && needs.create-vms.result == 'success' }}
     strategy:
       matrix:
         image: ${{ fromJson(needs.setup-matrix.outputs.matrix) }}
@@ -159,6 +213,8 @@ jobs:
         echo "Runner: $(hostname)"
         echo "Matrix suffix: ${{ matrix.image.suffix }}"
         echo "Runner label: ${{ matrix.image.label }}"
+        echo "VM Type: ${{ needs.setup-matrix.outputs.use_spot == 'true' && 'Spot' || 'Regular' }}"
+        echo "VM Size: ${{ needs.setup-matrix.outputs.vm_size }}"
         echo "System ready at $(date)"
 
     - name: Debug Parallel Execution
@@ -178,7 +234,8 @@ jobs:
 
     - name: Show Info
       run: |
-        echo "🟡 Running ${{ matrix.image.name }} scan on SPOT instance"
+        vm_type="${{ needs.setup-matrix.outputs.use_spot == 'true' && 'SPOT' || 'REGULAR' }}"
+        echo "🟡 Running ${{ matrix.image.name }} scan on $vm_type instance"
         echo "Image: ${{ env.IMAGE_REGISTRY_1 }}/${{ env.IMAGE_OWNER_1 }}/${{ env.IMAGE_NAME_2 }}:${{ matrix.image.tag }}"
         ls -lDR ${GITHUB_WORKSPACE} | grep ':$'
         df -h
@@ -202,9 +259,14 @@ jobs:
         df -h
 
         check_eviction_notice() {
+          # Only check for eviction if using spot VMs
+          if [[ "${{ needs.setup-matrix.outputs.use_spot }}" != "true" ]]; then
+            return 1  # Not a spot VM, no eviction possible
+          fi
+
           response=$(curl -s -m 5 -H "Metadata:true" "http://169.254.169.254/metadata/scheduledevents?api-version=2019-08-01" 2>/dev/null || echo '{}')
           if echo "$response" | jq -e '.Events[]? | select(.EventType == "Preempt")' > /dev/null 2>&1; then
-            echo "⚠️  Spot eviction notice received!"
+            echo "⚠️ Spot eviction notice received!"
             return 0
           fi
           return 1
@@ -221,16 +283,18 @@ jobs:
           mend image "$image_ref" --filename "$output_file" --format sarif --scope "*//DataCatalogue//*" &
           local mend_pid=$!
 
-          # Monitor for eviction notices while scan runs
-          while kill -0 $mend_pid 2>/dev/null; do
-            if check_eviction_notice; then
-              echo "🛑 Spot eviction detected during ${{ matrix.image.name }} scan, terminating gracefully..."
-              kill $mend_pid 2>/dev/null || true
-              wait $mend_pid 2>/dev/null || true
-              exit 1
-            fi
-            sleep 30
-          done
+          # Monitor for eviction notices while scan runs (only for spot VMs)
+          if [[ "${{ needs.setup-matrix.outputs.use_spot }}" == "true" ]]; then
+            while kill -0 $mend_pid 2>/dev/null; do
+              if check_eviction_notice; then
+                echo "🛑 Spot eviction detected during ${{ matrix.image.name }} scan, terminating gracefully..."
+                kill $mend_pid 2>/dev/null || true
+                wait $mend_pid 2>/dev/null || true
+                exit 1
+              fi
+              sleep 30
+            done
+          fi
 
           # Wait for scan to complete and get result
           wait $mend_pid
@@ -283,25 +347,29 @@ jobs:
     - name: "Mend: Upload logs - ${{ matrix.image.name }}"
       uses: actions/upload-artifact@v4
       with:
-        name: mend_io_cn_scan_logs_spot_${{ matrix.image.suffix }}
+        name: mend_io_cn_scan_logs_${{ needs.setup-matrix.outputs.use_spot == 'true' && 'spot' || 'regular' }}_${{ matrix.image.suffix }}
         path: ~/.mend/logs/cn/*.log
 
     - name: Mark Success
       id: mark-success
       run: echo "success=true" >> $GITHUB_OUTPUT
 
-  # Cleanup spot VMs (always run)
-  delete-spot:
-    needs: [setup-matrix, debug-matrix, build-spot, create-spot]
-    if: ${{ always() }}
+  # Sequential cleanup VMs (wait for build jobs to complete first)
+  cleanup-vms:
+    needs: [setup-matrix, create-vms, build-and-scan]
+    # Always run cleanup, but only after build jobs are done (success, failure, or skipped)
+    # Don't run if workflow was cancelled before VMs were created
+    if: ${{ always() && needs.create-vms.result == 'success' }}
     strategy:
       matrix:
         image: ${{ fromJson(needs.setup-matrix.outputs.matrix) }}
       fail-fast: false
+      # Sequential cleanup to avoid race conditions
+      max-parallel: 1
     uses: Jason-Clark-FG/azure-github-runner/.github/workflows/delete.yml@main
     with:
       RESOURCE_GROUP_NAME: "rg-t-wus2-ghrunner-01"
-      VM_NAME: "az-ghrunner-01t-spot-${{ matrix.image.suffix }}"
+      VM_NAME: "az-ghrunner-01t-${{ needs.setup-matrix.outputs.use_spot == 'true' && 'spot' || 'regular' }}-${{ matrix.image.suffix }}"
       VM_USERNAME: "ghradmin"
       SSH_KEY_BASENAME: id_rsa-${{ matrix.image.suffix }}
     secrets:
@@ -311,73 +379,61 @@ jobs:
       ARM_SUBSCRIPTION_ID: ${{ secrets.ARM_SUBSCRIPTION_ID }}
       GH_TOKEN: ${{ secrets.GH_TOKEN }}
 
-  # Determine which scans failed and need retry on regular VMs
-  check-failures:
-    needs: [setup-matrix, debug-matrix, build-spot]
+  # Optional: Determine which scans failed and need retry (only if using spot VMs and they failed)
+  check-spot-failures:
+    needs: [setup-matrix, build-and-scan]
     runs-on: ubuntu-latest
-    if: ${{ always() }}
+    # Only check for failures if we were using spot VMs and some jobs failed
+    if: ${{ always() && needs.setup-matrix.outputs.use_spot == 'true' && contains(needs.build-and-scan.result, 'failure') }}
     outputs:
       failed-matrix: ${{ steps.failed.outputs.matrix }}
+      has-failures: ${{ steps.failed.outputs.has-failures }}
     steps:
-    - name: Determine Failed Scans
+    - name: Determine Failed Spot Scans
       id: failed
       run: |
+        echo "Checking for failed spot VM scans that need retry on regular VMs..."
+
         original_matrix='${{ needs.setup-matrix.outputs.matrix }}'
         echo "Original matrix: $original_matrix"
 
-        # Initialize empty array for failed items
-        failed_matrix=$(jq -n '[]')
+        # For now, create a simplified failed matrix
+        # In a real scenario, you'd need more sophisticated logic to determine which specific matrix jobs failed
+        failed_matrix=$(echo "$original_matrix")
 
-        # Check each matrix item to see if it failed
-        while IFS= read -r item; do
-          suffix=$(echo "$item" | jq -r '.suffix')
-
-          # Check if this specific matrix job failed
-          # Note: This is simplified - in practice you'd need to check the specific matrix job result
-          echo "Checking $suffix scan result..."
-
-          # For now, we'll assume any job that didn't complete successfully needs retry
-          # You might need to adjust this logic based on how GitHub Actions exposes matrix job results
-          failed_matrix=$(echo "$failed_matrix" | jq --argjson item "$item" '. += [$item]')
-        done < <(echo "$original_matrix" | jq -c '.[]')
-
-        # Validate and output the final matrix
-        if echo "$failed_matrix" | jq empty 2>/dev/null; then
-          echo "✅ Failed matrix JSON validation successful"
-          echo "Failed scans matrix: $failed_matrix"
-          echo "Failed items count: $(echo "$failed_matrix" | jq length)"
-          # Output compact JSON for GitHub Actions (single line, no formatting)
+        # Check if we have any failures
+        if [[ "$(echo "$failed_matrix" | jq length)" -gt 0 ]]; then
+          echo "has-failures=true" >> $GITHUB_OUTPUT
           compact_failed_matrix=$(echo "$failed_matrix" | jq -c .)
           echo "matrix=$compact_failed_matrix" >> $GITHUB_OUTPUT
+          echo "Found failed scans that need retry: $compact_failed_matrix"
         else
-          echo "❌ Failed matrix JSON validation failed"
-          echo "Invalid JSON: $failed_matrix"
-          echo "JSON error details:"
-          echo "$failed_matrix" | jq . 2>&1 || true
-          exit 1
+          echo "has-failures=false" >> $GITHUB_OUTPUT
+          echo "matrix=[]" >> $GITHUB_OUTPUT
+          echo "No failed scans found"
         fi
 
-  # Create regular VMs for failed scans
-  create-regular:
-    needs: [check-failures, delete-spot]
-    if: ${{ always() && needs.check-failures.outputs.failed-matrix != '[]' }}
+  # Create regular VMs for failed spot scans (only if spot failed and we're not cancelled)
+  create-retry-vms:
+    needs: [check-spot-failures, cleanup-vms]
+    if: ${{ !cancelled() && needs.check-spot-failures.outputs.has-failures == 'true' }}
     strategy:
       matrix:
-        image: ${{ fromJson(needs.check-failures.outputs.failed-matrix) }}
+        image: ${{ fromJson(needs.check-spot-failures.outputs.failed-matrix) }}
       fail-fast: false
     uses: Jason-Clark-FG/azure-github-runner/.github/workflows/create.yml@main
     with:
       RESOURCE_GROUP_NAME: "rg-t-wus2-ghrunner-01"
       LOCATION: "westus2"
       VM_IMAGE: ${{ vars.VM_IMAGE_REF }}
-      VM_SPOT: "False"  # Regular instance
-      VM_SIZE: "Standard_D8as_v5"
+      VM_SPOT: "False"  # Always use regular instances for retries
+      VM_SIZE: "Standard_D4as_v5"  # Use smaller, more stable size for retries
       VM_DISK_SIZE: "127"
-      VM_NAME: "az-ghrunner-01t-regular-${{ matrix.image.suffix }}"
+      VM_NAME: "az-ghrunner-01t-retry-${{ matrix.image.suffix }}"
       VM_USERNAME: "ghradmin"
       STORAGE_BLOB_URI: "https://sfgdwus2syspro8.blob.core.windows.net/"
-      SSH_KEY_BASENAME: id_rsa-${{ matrix.image.suffix }}
-      RUNNER_LABEL: ${{ matrix.image.label }}
+      SSH_KEY_BASENAME: id_rsa-retry-${{ matrix.image.suffix }}
+      RUNNER_LABEL: retry-${{ matrix.image.label }}
     secrets:
       ARM_CLIENT_ID: ${{ secrets.ARM_CLIENT_ID }}
       ARM_CLIENT_SECRET: ${{ secrets.ARM_CLIENT_SECRET }}
@@ -386,14 +442,14 @@ jobs:
       GH_TOKEN: ${{ secrets.GH_TOKEN }}
 
   # Retry failed scans on regular VMs
-  build-regular:
-    needs: [check-failures, create-regular]
-    if: ${{ needs.create-regular.result == 'success' }}
+  retry-on-regular:
+    needs: [check-spot-failures, create-retry-vms]
+    if: ${{ !cancelled() && needs.create-retry-vms.result == 'success' }}
     strategy:
       matrix:
-        image: ${{ fromJson(needs.check-failures.outputs.failed-matrix) }}
+        image: ${{ fromJson(needs.check-spot-failures.outputs.failed-matrix) }}
       fail-fast: false
-    runs-on: ${{ matrix.image.label }}
+    runs-on: retry-${{ matrix.image.label }}
     timeout-minutes: 120
     permissions:
       security-events: write
@@ -413,7 +469,7 @@ jobs:
 
     - name: Show Info
       run: |
-        echo "🟢 Running ${{ matrix.image.name }} scan on REGULAR instance (spot failed)"
+        echo "🟢 Running ${{ matrix.image.name }} scan on REGULAR instance (spot retry)"
         echo "Image: ${{ env.IMAGE_REGISTRY_1 }}/${{ env.IMAGE_OWNER_1 }}/${{ env.IMAGE_NAME_2 }}:${{ matrix.image.tag }}"
         df -h
 
@@ -457,35 +513,36 @@ jobs:
     - name: SARIF Multitool
       uses: microsoft/sarif-actions@v0.1
       with:
-        command: merge ./reports/*.sarif --recurse true --output-directory=./reports/ --output-file=MendResults-${{ matrix.image.suffix }}.sarif
+        command: merge ./reports/*.sarif --recurse true --output-directory=./reports/ --output-file=MendResults-retry-${{ matrix.image.suffix }}.sarif
 
     - name: "Mend: Upload SARIF results - ${{ matrix.image.name }} (Retry)"
       if: ${{ github.event_name != 'pull_request_target' && env.REPORTS_OUT == 'true' }}
       uses: github/codeql-action/upload-sarif@v3
       with:
-        sarif_file: './reports/MendResults-${{ matrix.image.suffix }}.sarif'
+        sarif_file: './reports/MendResults-retry-${{ matrix.image.suffix }}.sarif'
         wait-for-processing: false
 
     - name: "Mend: Upload logs - ${{ matrix.image.name }} (Retry)"
       uses: actions/upload-artifact@v4
       with:
-        name: mend_io_cn_scan_logs_regular_${{ matrix.image.suffix }}
+        name: mend_io_cn_scan_logs_retry_${{ matrix.image.suffix }}
         path: ~/.mend/logs/cn/*.log
 
-  # Cleanup regular VMs
-  delete-regular:
-    needs: [check-failures, build-regular, create-regular]
-    if: ${{ always() && needs.create-regular.result == 'success' }}
+  # Final cleanup of retry VMs
+  cleanup-retry-vms:
+    needs: [check-spot-failures, create-retry-vms, retry-on-regular]
+    if: ${{ always() && needs.create-retry-vms.result == 'success' }}
     strategy:
       matrix:
-        image: ${{ fromJson(needs.check-failures.outputs.failed-matrix) }}
+        image: ${{ fromJson(needs.check-spot-failures.outputs.failed-matrix) }}
       fail-fast: false
+      max-parallel: 1  # Sequential cleanup
     uses: Jason-Clark-FG/azure-github-runner/.github/workflows/delete.yml@main
     with:
       RESOURCE_GROUP_NAME: "rg-t-wus2-ghrunner-01"
-      VM_NAME: "az-ghrunner-01t-regular-${{ matrix.image.suffix }}"
+      VM_NAME: "az-ghrunner-01t-retry-${{ matrix.image.suffix }}"
       VM_USERNAME: "ghradmin"
-      SSH_KEY_BASENAME: id_rsa-${{ matrix.image.suffix }}
+      SSH_KEY_BASENAME: id_rsa-retry-${{ matrix.image.suffix }}
     secrets:
       ARM_CLIENT_ID: ${{ secrets.ARM_CLIENT_ID }}
       ARM_CLIENT_SECRET: ${{ secrets.ARM_CLIENT_SECRET }}
