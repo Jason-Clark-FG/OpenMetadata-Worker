@@ -185,8 +185,8 @@ jobs:
   # Build and scan images
   build-and-scan:
     needs: [setup-matrix, debug-matrix, create-vms]
-    # Only run if not cancelled and VMs were created successfully
-    if: ${{ !cancelled() && needs.create-vms.result == 'success' }}
+    # Only run if not cancelled and ALL VM creation jobs succeeded
+    if: ${{ !cancelled() && !contains(needs.create-vms.result, 'failure') && !contains(needs.create-vms.result, 'cancelled') }}
     strategy:
       matrix:
         image: ${{ fromJson(needs.setup-matrix.outputs.matrix) }}
@@ -206,6 +206,21 @@ jobs:
       packages: write
 
     steps:
+    - name: Check VM Creation Success
+      run: |
+        echo "Checking VM creation status..."
+        echo "VM creation result: ${{ needs.create-vms.result }}"
+        if [[ "${{ needs.create-vms.result }}" != "success" ]]; then
+          echo "❌ VM creation failed or was cancelled. Cannot proceed with scanning."
+          echo "This could be due to:"
+          echo "  - Azure quota limits (vCPU, resource limits)"
+          echo "  - Network connectivity issues"
+          echo "  - Authentication problems"
+          echo "  - Resource group issues"
+          exit 1
+        fi
+        echo "✅ VM creation successful, proceeding with scan"
+
     - name: Wait for Runner Registration
       timeout-minutes: 5  # Short timeout just for runner check
       run: |
@@ -357,14 +372,14 @@ jobs:
   # Sequential cleanup VMs (wait for build jobs to complete first)
   cleanup-vms:
     needs: [setup-matrix, create-vms, build-and-scan]
-    # Always run cleanup, but only after build jobs are done (success, failure, or skipped)
-    # Don't run if workflow was cancelled before VMs were created
-    if: ${{ always() && needs.create-vms.result == 'success' }}
+    # Always run cleanup if VMs were created, regardless of build success/failure
+    # This ensures cleanup happens even if builds fail or are cancelled
+    if: ${{ always() && !contains(needs.create-vms.result, 'failure') && !contains(needs.create-vms.result, 'cancelled') && !contains(needs.create-vms.result, 'skipped') }}
     strategy:
       matrix:
         image: ${{ fromJson(needs.setup-matrix.outputs.matrix) }}
       fail-fast: false
-      # Sequential cleanup to avoid race conditions
+      # Sequential cleanup to avoid race conditions and deletion conflicts
       max-parallel: 1
     uses: Jason-Clark-FG/azure-github-runner/.github/workflows/delete.yml@main
     with:
@@ -378,6 +393,55 @@ jobs:
       ARM_TENANT_ID: ${{ secrets.ARM_TENANT_ID }}
       ARM_SUBSCRIPTION_ID: ${{ secrets.ARM_SUBSCRIPTION_ID }}
       GH_TOKEN: ${{ secrets.GH_TOKEN }}
+
+  # Emergency cleanup job that runs if the main cleanup fails
+  emergency-cleanup:
+    needs: [setup-matrix, create-vms, cleanup-vms]
+    # Run if cleanup failed and VMs were actually created
+    if: ${{ always() && needs.cleanup-vms.result == 'failure' && !contains(needs.create-vms.result, 'failure') }}
+    runs-on: ubuntu-latest
+    steps:
+    - name: Emergency VM Cleanup
+      run: |
+        echo "🚨 Main cleanup failed, attempting emergency cleanup"
+        echo "This is a fallback to ensure VMs don't get orphaned"
+
+        # Install Azure CLI
+        curl -sL https://aka.ms/InstallAzureCLIDeb | sudo bash
+
+        # Login to Azure
+        az login --service-principal \
+          --username "${{ secrets.ARM_CLIENT_ID }}" \
+          --password "${{ secrets.ARM_CLIENT_SECRET }}" \
+          --tenant "${{ secrets.ARM_TENANT_ID }}"
+
+        az account set --subscription "${{ secrets.ARM_SUBSCRIPTION_ID }}"
+
+        # List and delete VMs that match our naming pattern
+        matrix='${{ needs.setup-matrix.outputs.matrix }}'
+        vm_type="${{ needs.setup-matrix.outputs.use_spot == 'true' && 'spot' || 'regular' }}"
+
+        echo "$matrix" | jq -r '.[] | .suffix' | while read suffix; do
+          vm_name="az-ghrunner-01t-${vm_type}-${suffix}"
+          echo "Checking for VM: $vm_name"
+
+          if az vm show --resource-group "rg-t-wus2-ghrunner-01" --name "$vm_name" --output none 2>/dev/null; then
+            echo "🗑️ Found orphaned VM $vm_name, attempting deletion..."
+
+            # Force delete VM and all associated resources
+            az vm delete --resource-group "rg-t-wus2-ghrunner-01" --name "$vm_name" --yes --force-deletion || true
+
+            # Also try to clean up associated resources
+            az network nsg delete --resource-group "rg-t-wus2-ghrunner-01" --name "${vm_name}-nsg" || true
+            az network public-ip delete --resource-group "rg-t-wus2-ghrunner-01" --name "${vm_name}-ip" || true
+            az network nic delete --resource-group "rg-t-wus2-ghrunner-01" --name "${vm_name}-nic" || true
+            az disk delete --resource-group "rg-t-wus2-ghrunner-01" --name "${vm_name}-disk" --yes || true
+
+            echo "✅ Emergency cleanup completed for $vm_name"
+          else
+            echo "✅ VM $vm_name not found (already cleaned up)"
+          fi
+        done
 
   # Optional: Determine which scans failed and need retry (only if using spot VMs and they failed)
   check-spot-failures:
@@ -415,8 +479,8 @@ jobs:
 
   # Create regular VMs for failed spot scans (only if spot failed and we're not cancelled)
   create-retry-vms:
-    needs: [check-spot-failures, cleanup-vms]
-    if: ${{ !cancelled() && needs.check-spot-failures.outputs.has-failures == 'true' }}
+    needs: [check-spot-failures, cleanup-vms, emergency-cleanup]
+    if: ${{ !cancelled() && needs.check-spot-failures.outputs.has-failures == 'true' && (needs.cleanup-vms.result == 'success' || needs.emergency-cleanup.result == 'success') }}
     strategy:
       matrix:
         image: ${{ fromJson(needs.check-spot-failures.outputs.failed-matrix) }}
@@ -531,7 +595,7 @@ jobs:
   # Final cleanup of retry VMs
   cleanup-retry-vms:
     needs: [check-spot-failures, create-retry-vms, retry-on-regular]
-    if: ${{ always() && needs.create-retry-vms.result == 'success' }}
+    if: ${{ always() && !contains(needs.create-retry-vms.result, 'failure') && !contains(needs.create-retry-vms.result, 'cancelled') && !contains(needs.create-retry-vms.result, 'skipped') }}
     strategy:
       matrix:
         image: ${{ fromJson(needs.check-spot-failures.outputs.failed-matrix) }}
@@ -549,3 +613,55 @@ jobs:
       ARM_TENANT_ID: ${{ secrets.ARM_TENANT_ID }}
       ARM_SUBSCRIPTION_ID: ${{ secrets.ARM_SUBSCRIPTION_ID }}
       GH_TOKEN: ${{ secrets.GH_TOKEN }}
+
+  # Final status report
+  workflow-summary:
+    needs: [setup-matrix, create-vms, build-and-scan, cleanup-vms, emergency-cleanup, check-spot-failures, create-retry-vms, retry-on-regular, cleanup-retry-vms]
+    if: ${{ always() }}
+    runs-on: ubuntu-latest
+    steps:
+    - name: Workflow Summary
+      run: |
+        echo "🔍 Container Scan Workflow Summary"
+        echo "=================================="
+        echo "VM Configuration:"
+        echo "  - Use Spot: ${{ needs.setup-matrix.outputs.use_spot }}"
+        echo "  - VM Size: ${{ needs.setup-matrix.outputs.vm_size }}"
+        echo "  - Trigger: ${{ github.event_name }}"
+        echo ""
+        echo "Job Results:"
+        echo "  - setup-matrix: ${{ needs.setup-matrix.result }}"
+        echo "  - create-vms: ${{ needs.create-vms.result }}"
+        echo "  - build-and-scan: ${{ needs.build-and-scan.result }}"
+        echo "  - cleanup-vms: ${{ needs.cleanup-vms.result }}"
+        echo "  - emergency-cleanup: ${{ needs.emergency-cleanup.result }}"
+        echo "  - check-spot-failures: ${{ needs.check-spot-failures.result }}"
+        echo "  - create-retry-vms: ${{ needs.create-retry-vms.result }}"
+        echo "  - retry-on-regular: ${{ needs.retry-on-regular.result }}"
+        echo "  - cleanup-retry-vms: ${{ needs.cleanup-retry-vms.result }}"
+        echo ""
+
+        # Check for potential issues
+        if [[ "${{ needs.create-vms.result }}" == "failure" ]]; then
+          echo "⚠️  VM Creation Failed - Possible Issues:"
+          echo "  - Azure quota exceeded (check vCPU limits)"
+          echo "  - Network connectivity problems"
+          echo "  - Authentication issues"
+          echo "  - Resource group access problems"
+        fi
+
+        if [[ "${{ needs.cleanup-vms.result }}" == "failure" ]]; then
+          echo "⚠️  VM Cleanup Failed:"
+          echo "  - Check emergency cleanup results"
+          echo "  - Manual cleanup may be required"
+          echo "  - Verify GH_TOKEN permissions"
+        fi
+
+        if [[ "${{ needs.emergency-cleanup.result }}" == "success" ]]; then
+          echo "✅ Emergency cleanup was successful"
+        elif [[ "${{ needs.emergency-cleanup.result }}" == "failure" ]]; then
+          echo "🚨 Emergency cleanup also failed - manual intervention required"
+        fi
+
+        echo ""
+        echo "Matrix scanned: ${{ needs.setup-matrix.outputs.matrix }}"
