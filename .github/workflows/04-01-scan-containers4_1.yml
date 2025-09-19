@@ -73,7 +73,9 @@ jobs:
           echo "Matrix structure:"
           echo "$matrix_json" | jq .
           echo "Matrix items count: $(echo "$matrix_json" | jq length)"
-          echo "matrix=$matrix_json" >> $GITHUB_OUTPUT
+          # Output compact JSON for GitHub Actions (single line, no formatting)
+          compact_matrix=$(echo "$matrix_json" | jq -c .)
+          echo "matrix=$compact_matrix" >> $GITHUB_OUTPUT
         else
           echo "❌ JSON validation failed"
           echo "Invalid JSON: $matrix_json"
@@ -335,7 +337,9 @@ jobs:
           echo "✅ Failed matrix JSON validation successful"
           echo "Failed scans matrix: $failed_matrix"
           echo "Failed items count: $(echo "$failed_matrix" | jq length)"
-          echo "matrix=$failed_matrix" >> $GITHUB_OUTPUT
+          # Output compact JSON for GitHub Actions (single line, no formatting)
+          compact_failed_matrix=$(echo "$failed_matrix" | jq -c .)
+          echo "matrix=$compact_failed_matrix" >> $GITHUB_OUTPUT
         else
           echo "❌ Failed matrix JSON validation failed"
           echo "Invalid JSON: $failed_matrix"

@@ -74,6 +74,10 @@ if echo "$matrix_json" | jq empty 2>/dev/null; then
   echo "$matrix_json" | jq .
   echo "Matrix items count: $(echo "$matrix_json" | jq length)"
   
+  # Test compact JSON output (like GitHub Actions)
+  compact_matrix=$(echo "$matrix_json" | jq -c .)
+  echo "Compact matrix for GitHub Actions: $compact_matrix"
+  
   # Test that we can iterate over the items (simulating workflow usage)
   echo
   echo "📝 Testing matrix iteration:"
