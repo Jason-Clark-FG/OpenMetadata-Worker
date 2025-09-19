@@ -33,27 +33,76 @@ jobs:
       run: |
         matrix_items=()
 
+        # Generate random suffix for labels
+        prod_suffix=$(shuf -er -n8 {a..z} | paste -sd '')
+        dev_suffix=$(shuf -er -n8 {a..z} | paste -sd '')
+        latest_suffix=$(shuf -er -n8 {a..z} | paste -sd '')
+
+        # Build JSON array using jq for proper escaping
+        matrix_json=$(jq -n '[]')
+
         # Always scan PROD
-        matrix_items+=('{"tag":"${{ vars.PROD_RELEASE_BRANCH }}","suffix":"prod","name":"Production","label":"spot-prod-$(shuf -er -n8  {a..z} | paste -sd "")"}')
+        matrix_json=$(echo "$matrix_json" | jq --arg tag "${{ vars.PROD_RELEASE_BRANCH }}" \
+          --arg suffix "prod" \
+          --arg name "Production" \
+          --arg label "spot-prod-${prod_suffix}" \
+          '. += [{"tag": $tag, "suffix": $suffix, "name": $name, "label": $label}]')
 
         # Scan DEV if different from PROD
         if [[ "${{ vars.DEV_RELEASE_BRANCH }}" != "${{ vars.PROD_RELEASE_BRANCH }}" ]]; then
-          matrix_items+=('{"tag":"${{ vars.DEV_RELEASE_BRANCH }}","suffix":"dev","name":"Development","label":"spot-dev-$(shuf -er -n8  {a..z} | paste -sd "")"}')
+          matrix_json=$(echo "$matrix_json" | jq --arg tag "${{ vars.DEV_RELEASE_BRANCH }}" \
+            --arg suffix "dev" \
+            --arg name "Development" \
+            --arg label "spot-dev-${dev_suffix}" \
+            '. += [{"tag": $tag, "suffix": $suffix, "name": $name, "label": $label}]')
         fi
 
         # Scan LATEST if different from both DEV and PROD
         if [[ "${{ vars.OM_LATEST_RELEASE }}" != "${{ vars.DEV_RELEASE_BRANCH }}" && "${{ vars.OM_LATEST_RELEASE }}" != "${{ vars.PROD_RELEASE_BRANCH }}" ]]; then
-          matrix_items+=('{"tag":"${{ vars.OM_LATEST_RELEASE }}","suffix":"latest","name":"Latest","label":"spot-latest-$(shuf -er -n8  {a..z} | paste -sd "")"}')
+          matrix_json=$(echo "$matrix_json" | jq --arg tag "${{ vars.OM_LATEST_RELEASE }}" \
+            --arg suffix "latest" \
+            --arg name "Latest" \
+            --arg label "spot-latest-${latest_suffix}" \
+            '. += [{"tag": $tag, "suffix": $suffix, "name": $name, "label": $label}]')
+        fi
+        echo "Generated matrix: $matrix_json"
+        
+        # Enhanced JSON validation with detailed debugging
+        if echo "$matrix_json" | jq empty 2>/dev/null; then
+          echo "✅ JSON validation successful"
+          echo "Matrix structure:"
+          echo "$matrix_json" | jq .
+          echo "Matrix items count: $(echo "$matrix_json" | jq length)"
+          echo "matrix=$matrix_json" >> $GITHUB_OUTPUT
+        else
+          echo "❌ JSON validation failed"
+          echo "Invalid JSON: $matrix_json"
+          echo "JSON error details:"
+          echo "$matrix_json" | jq . 2>&1 || true
+          echo "Environment variables:"
+          echo "PROD_RELEASE_BRANCH: ${{ vars.PROD_RELEASE_BRANCH }}"
+          echo "DEV_RELEASE_BRANCH: ${{ vars.DEV_RELEASE_BRANCH }}"
+          echo "OM_LATEST_RELEASE: ${{ vars.OM_LATEST_RELEASE }}"
+          exit 1
         fi
 
-        # Create JSON array
-        matrix_json=$(IFS=,; echo "[${matrix_items[*]}]")
-        echo "Generated matrix: $matrix_json"
-        echo "matrix=$matrix_json" >> $GITHUB_OUTPUT
+  # Debug matrix generation
+  debug-matrix:
+    needs: setup-matrix
+    runs-on: ubuntu-latest
+    steps:
+    - name: Debug Matrix Output
+      run: |
+        echo "Matrix output from setup-matrix job:"
+        echo '${{ needs.setup-matrix.outputs.matrix }}'
+        echo "Parsing with jq:"
+        echo '${{ needs.setup-matrix.outputs.matrix }}' | jq .
+        echo "Matrix items count:"
+        echo '${{ needs.setup-matrix.outputs.matrix }}' | jq length
 
   # Create spot VMs for each image scan
   create-spot:
-    needs: setup-matrix
+    needs: [setup-matrix, debug-matrix]
     strategy:
       matrix:
         image: ${{ fromJson(needs.setup-matrix.outputs.matrix) }}
@@ -81,7 +130,7 @@ jobs:
 
   # Try to build on spot VMs
   build-spot:
-    needs: [setup-matrix, create-spot]
+    needs: [setup-matrix, debug-matrix, create-spot]
     strategy:
       matrix:
         image: ${{ fromJson(needs.setup-matrix.outputs.matrix) }}
@@ -232,7 +281,7 @@ jobs:
 
   # Cleanup spot VMs (always run)
   delete-spot:
-    needs: [setup-matrix, build-spot, create-spot]
+    needs: [setup-matrix, debug-matrix, build-spot, create-spot]
     if: ${{ always() }}
     strategy:
       matrix:
@@ -253,7 +302,7 @@ jobs:
 
   # Determine which scans failed and need retry on regular VMs
   check-failures:
-    needs: [setup-matrix, build-spot]
+    needs: [setup-matrix, debug-matrix, build-spot]
     runs-on: ubuntu-latest
     if: ${{ always() }}
     outputs:
@@ -263,10 +312,13 @@ jobs:
       id: failed
       run: |
         original_matrix='${{ needs.setup-matrix.outputs.matrix }}'
-        failed_items=()
-
+        echo "Original matrix: $original_matrix"
+        
+        # Initialize empty array for failed items
+        failed_matrix=$(jq -n '[]')
+        
         # Check each matrix item to see if it failed
-        echo "$original_matrix" | jq -c '.[]' | while IFS= read -r item; do
+        while IFS= read -r item; do
           suffix=$(echo "$item" | jq -r '.suffix')
 
           # Check if this specific matrix job failed
@@ -275,16 +327,21 @@ jobs:
 
           # For now, we'll assume any job that didn't complete successfully needs retry
           # You might need to adjust this logic based on how GitHub Actions exposes matrix job results
-          failed_items+=("$item")
-        done
+          failed_matrix=$(echo "$failed_matrix" | jq --argjson item "$item" '. += [$item]')
+        done < <(echo "$original_matrix" | jq -c '.[]')
 
-        # If we have failures, create matrix for retry
-        if [ ${#failed_items[@]} -gt 0 ]; then
-          failed_matrix=$(IFS=,; echo "[${failed_items[*]}]")
+        # Validate and output the final matrix
+        if echo "$failed_matrix" | jq empty 2>/dev/null; then
+          echo "✅ Failed matrix JSON validation successful"
           echo "Failed scans matrix: $failed_matrix"
+          echo "Failed items count: $(echo "$failed_matrix" | jq length)"
           echo "matrix=$failed_matrix" >> $GITHUB_OUTPUT
         else
-          echo "matrix=[]" >> $GITHUB_OUTPUT
+          echo "❌ Failed matrix JSON validation failed"
+          echo "Invalid JSON: $failed_matrix"
+          echo "JSON error details:"
+          echo "$failed_matrix" | jq . 2>&1 || true
+          exit 1
         fi
 
   # Create regular VMs for failed scans
