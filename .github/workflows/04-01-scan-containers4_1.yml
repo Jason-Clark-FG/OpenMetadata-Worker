@@ -435,7 +435,6 @@ jobs:
       # Sequential cleanup to avoid race conditions and deletion conflicts
       max-parallel: 1
     uses: Jason-Clark-FG/azure-github-runner/.github/workflows/delete.yml@main
-    continue-on-error: true  # Don't fail the workflow if individual deletions fail
     with:
       RESOURCE_GROUP_NAME: "rg-t-wus2-ghrunner-01"
       VM_NAME: "az-ghrunner-01t-${{ needs.setup-matrix.outputs.use_spot == 'true' && 'spot' || 'regular' }}-${{ matrix.image.suffix }}"
