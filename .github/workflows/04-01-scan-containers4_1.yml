@@ -88,6 +88,13 @@ jobs:
         dev_suffix=$(shuf -er -n8 {a..z} | paste -sd '')
         latest_suffix=$(shuf -er -n8 {a..z} | paste -sd '')
 
+        # Determine label prefix based on VM type
+        if [[ "$use_spot" == "true" ]]; then
+          label_prefix="spot"
+        else
+          label_prefix="regular"
+        fi
+
         # Build JSON array using jq for proper escaping
         matrix_json=$(jq -n '[]')
 
@@ -95,7 +102,7 @@ jobs:
         matrix_json=$(echo "$matrix_json" | jq --arg tag "${{ vars.PROD_RELEASE_BRANCH }}" \
           --arg suffix "prod" \
           --arg name "Production" \
-          --arg label "spot-prod-${prod_suffix}" \
+          --arg label "${label_prefix}-prod-${prod_suffix}" \
           '. += [{"tag": $tag, "suffix": $suffix, "name": $name, "label": $label}]')
 
         # Scan DEV if different from PROD
@@ -103,7 +110,7 @@ jobs:
           matrix_json=$(echo "$matrix_json" | jq --arg tag "${{ vars.DEV_RELEASE_BRANCH }}" \
             --arg suffix "dev" \
             --arg name "Development" \
-            --arg label "spot-dev-${dev_suffix}" \
+            --arg label "${label_prefix}-dev-${dev_suffix}" \
             '. += [{"tag": $tag, "suffix": $suffix, "name": $name, "label": $label}]')
         fi
 
@@ -112,7 +119,7 @@ jobs:
           matrix_json=$(echo "$matrix_json" | jq --arg tag "${{ vars.OM_LATEST_RELEASE }}" \
             --arg suffix "latest" \
             --arg name "Latest" \
-            --arg label "spot-latest-${latest_suffix}" \
+            --arg label "${label_prefix}-latest-${latest_suffix}" \
             '. += [{"tag": $tag, "suffix": $suffix, "name": $name, "label": $label}]')
         fi
         echo "Generated matrix: $matrix_json"
