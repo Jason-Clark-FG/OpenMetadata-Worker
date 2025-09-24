@@ -15,7 +15,8 @@
       "Bash(git commit:*)",
       "Bash(git checkout:*)",
       "Bash(git log:*)",
-      "Bash(git push:*)"
+      "Bash(git push:*)",
+      "Read(//c/Projects/OSS/azure-github-runner/**)"
     ],
     "deny": [],
     "ask": []
