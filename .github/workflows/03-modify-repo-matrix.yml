@@ -121,9 +121,15 @@ jobs:
           # Top Level Elements
           compose_top_level_name="${${{ vars.FG_COMPOSE_TOP_LEVEL_NAME }}:-openmetadata}"
           top_level_name=$(yq ".name" ${{ vars.FG_COMPOSE_TARGET }})
-          if [[ ${top_level_name} == null ]];then echo "Adding top-level name";yq -i ".name = \"${compose_top_level_name}\"" ${{ vars.FG_COMPOSE_TARGET }};fi
+          if [[ ${top_level_name} == null ]];then
+            echo "Adding top-level name"
+            yq -i ".name = \"${compose_top_level_name}\"" ${{ vars.FG_COMPOSE_TARGET }}
+          fi
           compose_top_level_version="$(yq ".version" ${{ vars.FG_COMPOSE_TARGET }})"
-          if [[ ${compose_top_level_version} != null ]];then echo "Removing obsolete compose version key";yq -i "del(.version)" ${{ vars.FG_COMPOSE_TARGET }};fi
+          if [[ ${compose_top_level_version} != null ]];then
+            echo "Removing obsolete compose version key"
+            yq -i "del(.version)" ${{ vars.FG_COMPOSE_TARGET }}
+          fi
 
           # Restart Settings
           # key_list=$(yq '.services | keys' ${{ vars.FG_COMPOSE_TARGET }} | cut -c '3-')
@@ -134,6 +140,13 @@ jobs:
               echo "Adding restart to ${key}";yq -i ".services.${key}.restart = \"always\"" ${{ vars.FG_COMPOSE_TARGET }}
             fi
           done
+
+          # Volumes
+          compose_esdata_volume=$(yq '.volumes.es-data' ${{ vars.FG_COMPOSE_TARGET }})
+          if [[ ${compose_esdata_volume} != null ]];then
+            echo "Updating es-data volume settings"
+            yq -i 'with(.volumes.es-data; .driver = "local" | .driver_opts.type = "none" | .driver_opts.o = "bind" | .driver_opts.device = "./docker-volume/es-data")' ${{ vars.FG_COMPOSE_TARGET }}
+          fi
 
           # MySQL
           echo "Updating MySQL"
@@ -210,7 +223,7 @@ jobs:
           key_list=$(yq '.services | keys' ${{ vars.FG_COMPOSE_TARGET }} | cut -c '3-' | grep -v execute-migrate-all)
           for key in ${key_list};do
             condition_value=$(yq ".services.${key}.depends_on.elasticsearch.condition" ${{ vars.FG_COMPOSE_TARGET }})
-            if [[ $condition_value == service_started ]];then 
+            if [[ $condition_value == service_started ]];then
               echo "Updating service_started to service_healthy in ${key}"
               yq -i ".services.${key}.depends_on.elasticsearch.condition = \"service_healthy\"" ${{ vars.FG_COMPOSE_TARGET }}
             fi
