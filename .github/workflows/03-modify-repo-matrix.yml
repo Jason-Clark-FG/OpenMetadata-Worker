@@ -65,7 +65,7 @@ jobs:
 
       # Checkout our local mirror
       # The public SSH keys for a host may be obtained using the utility `ssh-keyscan`. For example, `ssh-keyscan github.com`.
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
         with:
           repository: Jason-Clark-FG/OpenMetadata-FG
           fetch-depth: 0

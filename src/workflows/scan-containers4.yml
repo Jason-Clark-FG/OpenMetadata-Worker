@@ -34,7 +34,7 @@ jobs:
     steps:
     # Checkout
     - name: Checkout Self
-      uses: actions/checkout@v4
+      uses: actions/checkout@v5
       # with:
       #   path: "self"
 
@@ -127,35 +127,35 @@ jobs:
     # # Ref: https://github.com/microsoft/sarif-actions
     # - name: SARIF Multitool 1
     #   id: sarif-multitool-1
-    #   uses: microsoft/sarif-actions@v0.1
+    #   uses: microsoft/sarif-actions@v0.2
     #   with:
     #     # Command to be sent to SARIF Multitool
     #     command: 'validate ${GITHUB_WORKSPACE}/reports/${{ env.IMAGE_NAME_1 }}.sarif'
     # # # Ref: https://github.com/microsoft/sarif-actions
     # - name: SARIF Multitool 2
     #   id: sarif-multitool-2
-    #   uses: microsoft/sarif-actions@v0.1
+    #   uses: microsoft/sarif-actions@v0.2
     #   with:
     #     # Command to be sent to SARIF Multitool
     #     command: 'validate ${GITHUB_WORKSPACE}/reports/${{ env.IMAGE_NAME_2 }}.sarif'
     # # Ref: https://github.com/microsoft/sarif-actions
     # - name: SARIF Multitool 3
     #   id: sarif-multitool-3
-    #   uses: microsoft/sarif-actions@v0.1
+    #   uses: microsoft/sarif-actions@v0.2
     #   with:
     #     # Command to be sent to SARIF Multitool
     #     command: 'validate ${GITHUB_WORKSPACE}/reports/${{ env.IMAGE_NAME_3 }}.sarif'
     # # Ref: https://github.com/microsoft/sarif-actions
     # - name: SARIF Multitool 4
     #   id: sarif-multitool-4
-    #   uses: microsoft/sarif-actions@v0.1
+    #   uses: microsoft/sarif-actions@v0.2
     #   with:
     #     # Command to be sent to SARIF Multitool
     #     command: 'validate ${GITHUB_WORKSPACE}/reports/${{ env.IMAGE_NAME_4 }}.sarif'
     # Ref:
     - name: SARIF Multitool 5
       id: sarif-multitool-5
-      uses: microsoft/sarif-actions@v0.1
+      uses: microsoft/sarif-actions@v0.2
       with:
         command: merge ./reports/*.sarif --recurse true --output-directory=./reports/ --output-file=MendResults.sarif
 
@@ -169,7 +169,7 @@ jobs:
     - name: "Mend: Upload SARIF results"
       id: upload-sarif-all
       if: ${{ github.event_name != 'pull_request_target' && env.REPORTS_OUT == 'true' }}
-      uses: github/codeql-action/upload-sarif@v3
+      uses: github/codeql-action/upload-sarif@v4
       with:
         # category: mend-sca
         sarif_file: './reports/MendResults.sarif'
@@ -178,7 +178,7 @@ jobs:
     # - name: "Mend: Upload SARIF result 1d"
     #   id: upload-sarif-1d
     #   if: ${{ github.event_name != 'pull_request_target' && env.REPORTS_OUT == 'true' }}
-    #   uses: github/codeql-action/upload-sarif@v3
+    #   uses: github/codeql-action/upload-sarif@v4
     #   with:
     #     category: mend-sca-${{ env.IMAGE_NAME_1 }}-${{ vars.DEV_RELEASE_BRANCH }}
     #     sarif_file: './reports/${{ env.IMAGE_NAME_1 }}-${{ vars.DEV_RELEASE_BRANCH }}.sarif'
@@ -187,7 +187,7 @@ jobs:
     # - name: "Mend: Upload SARIF result 1p"
     #   id: upload-sarif-1p
     #   if: ${{ github.event_name != 'pull_request_target' && env.REPORTS_OUT == 'true' }}
-    #   uses: github/codeql-action/upload-sarif@v3
+    #   uses: github/codeql-action/upload-sarif@v4
     #   with:
     #     category: mend-sca-${{ env.IMAGE_NAME_1 }}-${{ vars.PROD_RELEASE_BRANCH }}
     #     sarif_file: './reports/${{ env.IMAGE_NAME_1 }}-${{ vars.PROD_RELEASE_BRANCH }}.sarif'
@@ -196,7 +196,7 @@ jobs:
     # - name: "Mend: Upload SARIF result 2d"
     #   id: upload-sarif-2d
     #   if: ${{ github.event_name != 'pull_request_target' && env.REPORTS_OUT == 'true' }}
-    #   uses: github/codeql-action/upload-sarif@v3
+    #   uses: github/codeql-action/upload-sarif@v4
     #   with:
     #     category: mend-sca-${{ env.IMAGE_NAME_2 }}-${{ vars.DEV_RELEASE_BRANCH }}
     #     sarif_file: './reports/${{ env.IMAGE_NAME_2 }}-${{ vars.DEV_RELEASE_BRANCH }}.sarif'
@@ -205,7 +205,7 @@ jobs:
     # - name: "Mend: Upload SARIF result 2p"
     #   id: upload-sarif-2p
     #   if: ${{ github.event_name != 'pull_request_target' && env.REPORTS_OUT == 'true' }}
-    #   uses: github/codeql-action/upload-sarif@v3
+    #   uses: github/codeql-action/upload-sarif@v4
     #   with:
     #     category: mend-sca-${{ env.IMAGE_NAME_2 }}-${{ vars.PROD_RELEASE_BRANCH }}
     #     sarif_file: './reports/${{ env.IMAGE_NAME_2 }}-${{ vars.PROD_RELEASE_BRANCH }}.sarif'
@@ -214,7 +214,7 @@ jobs:
     # - name: "Mend: Upload SARIF result 3d"
     #   id: upload-sarif-3d
     #   if: ${{ github.event_name != 'pull_request_target' && env.REPORTS_OUT == 'true' }}
-    #   uses: github/codeql-action/upload-sarif@v3
+    #   uses: github/codeql-action/upload-sarif@v4
     #   with:
     #     category: mend-sca-${{ env.IMAGE_NAME_3 }}-${{ vars.DEV_RELEASE_BRANCH }}
     #     sarif_file: './reports/${{ env.IMAGE_NAME_3 }}-${{ vars.DEV_RELEASE_BRANCH }}.sarif'
@@ -223,7 +223,7 @@ jobs:
     # - name: "Mend: Upload SARIF result 3p"
     #   id: upload-sarif-3p
     #   if: ${{ github.event_name != 'pull_request_target' && env.REPORTS_OUT == 'true' }}
-    #   uses: github/codeql-action/upload-sarif@v3
+    #   uses: github/codeql-action/upload-sarif@v4
     #   with:
     #     category: mend-sca-${{ env.IMAGE_NAME_3 }}-${{ vars.PROD_RELEASE_BRANCH }}
     #     sarif_file: './reports/${{ env.IMAGE_NAME_3 }}-${{ vars.PROD_RELEASE_BRANCH }}.sarif'
@@ -232,7 +232,7 @@ jobs:
     # - name: "Mend: Upload SARIF result 4d"
     #   id: upload-sarif-4d
     #   if: ${{ github.event_name != 'pull_request_target' && env.REPORTS_OUT == 'true' }}
-    #   uses: github/codeql-action/upload-sarif@v3
+    #   uses: github/codeql-action/upload-sarif@v4
     #   with:
     #     category: mend-sca-${{ env.IMAGE_NAME_4 }}-${{ vars.DEV_RELEASE_BRANCH }}
     #     sarif_file: './reports/${{ env.IMAGE_NAME_4 }}-${{ vars.DEV_RELEASE_BRANCH }}.sarif'
@@ -241,7 +241,7 @@ jobs:
     # - name: "Mend: Upload SARIF result 4p"
     #   id: upload-sarif-4p
     #   if: ${{ github.event_name != 'pull_request_target' && env.REPORTS_OUT == 'true' }}
-    #   uses: github/codeql-action/upload-sarif@v3
+    #   uses: github/codeql-action/upload-sarif@v4
     #   with:
     #     category: mend-sca-${{ env.IMAGE_NAME_4 }}-${{ vars.PROD_RELEASE_BRANCH }}
     #     sarif_file: './reports/${{ env.IMAGE_NAME_4 }}-${{ vars.PROD_RELEASE_BRANCH }}.sarif'

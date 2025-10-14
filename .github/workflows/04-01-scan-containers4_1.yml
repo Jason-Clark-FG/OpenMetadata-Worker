@@ -247,7 +247,7 @@ jobs:
         echo "Matrix suffix: ${{ matrix.image.suffix }}"
 
     - name: Checkout Self
-      uses: actions/checkout@v4
+      uses: actions/checkout@v5
 
     - name: Login to Docker Hub
       uses: docker/login-action@v3
@@ -407,14 +407,14 @@ jobs:
 
     - name: SARIF Multitool
       id: sarif-multitool
-      uses: microsoft/sarif-actions@v0.1
+      uses: microsoft/sarif-actions@v0.2
       with:
         command: merge ./reports/*.sarif --recurse true --output-directory=./reports/ --output-file=MendResults-${{ matrix.image.suffix }}.sarif
 
     - name: "Mend: Upload SARIF results - ${{ matrix.image.name }}"
       id: upload-sarif
       if: ${{ github.event_name != 'pull_request_target' && env.REPORTS_OUT == 'true' }}
-      uses: github/codeql-action/upload-sarif@v3
+      uses: github/codeql-action/upload-sarif@v4
       with:
         sarif_file: './reports/MendResults-${{ matrix.image.suffix }}.sarif'
         wait-for-processing: false
@@ -666,7 +666,7 @@ jobs:
 
     steps:
     - name: Checkout Self
-      uses: actions/checkout@v4
+      uses: actions/checkout@v5
 
     - name: Login to Docker Hub
       uses: docker/login-action@v3
@@ -757,13 +757,13 @@ jobs:
         MEND_LOG_LEVEL: DEBUG
 
     - name: SARIF Multitool
-      uses: microsoft/sarif-actions@v0.1
+      uses: microsoft/sarif-actions@v0.2
       with:
         command: merge ./reports/*.sarif --recurse true --output-directory=./reports/ --output-file=MendResults-retry-${{ matrix.image.suffix }}.sarif
 
     - name: "Mend: Upload SARIF results - ${{ matrix.image.name }} (Retry)"
       if: ${{ github.event_name != 'pull_request_target' && env.REPORTS_OUT == 'true' }}
-      uses: github/codeql-action/upload-sarif@v3
+      uses: github/codeql-action/upload-sarif@v4
       with:
         sarif_file: './reports/MendResults-retry-${{ matrix.image.suffix }}.sarif'
         wait-for-processing: false

@@ -59,7 +59,7 @@ jobs:
     steps:
     # Checkout
     - name: Checkout repository
-      uses: actions/checkout@v4
+      uses: actions/checkout@v5
       with:
         repository: ${{ env.IMAGE_REPO }}
         fetch-depth: 0
@@ -120,7 +120,7 @@ jobs:
     # https://github.com/docker/build-push-action
     - name: Build and push Docker image
       id: build-and-push
-      uses: docker/build-push-action@v5
+      uses: docker/build-push-action@v6
       with:
         context: ${{ env.IMAGE_PATH }}
         file: ${{ env.IMAGE_FILE }}

@@ -33,7 +33,7 @@ jobs:
     steps:
     # Checkout
     - name: Checkout Self
-      uses: actions/checkout@v4
+      uses: actions/checkout@v5
       # with:
       #   path: "self"
 

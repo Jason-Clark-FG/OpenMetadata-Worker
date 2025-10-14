@@ -29,7 +29,7 @@ jobs:
           env | sort
 
       # # Checkout self to target
-      # - uses: actions/checkout@v4
+      # - uses: actions/checkout@v5
       #   with:
       #     path: 'target'
 
@@ -45,9 +45,9 @@ jobs:
       #     ls -la ${GITHUB_WORKSPACE}/../
       #     ls -la ${GITHUB_WORKSPACE}/../../
       #     ls -la ${GITHUB_WORKSPACE}/../target/
-  
+
       # Checkout our local mirror
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
         with:
           repository: Jason-Clark-FG/OpenMetadata-Mirror
           # path: OpenMetadata
