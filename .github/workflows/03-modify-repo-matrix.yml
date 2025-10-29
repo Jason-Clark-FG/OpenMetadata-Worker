@@ -142,11 +142,11 @@ jobs:
           done
 
           # Volumes
-          compose_esdata_volume=$(yq '.volumes.es-data' ${{ vars.FG_COMPOSE_TARGET }})
-          if [[ ${compose_esdata_volume} != null ]];then
-            echo "Updating es-data volume settings"
-            yq -i 'with(.volumes.es-data; .driver = "local" | .driver_opts.type = "none" | .driver_opts.o = "bind" | .driver_opts.device = "./docker-volume/es-data")' ${{ vars.FG_COMPOSE_TARGET }}
-          fi
+          # compose_esdata_volume=$(yq '.volumes.es-data' ${{ vars.FG_COMPOSE_TARGET }})
+          # if [[ ${compose_esdata_volume} != null ]];then
+          #   echo "Updating es-data volume settings"
+          #   yq -i 'with(.volumes.es-data; .driver = "local" | .driver_opts.type = "none" | .driver_opts.o = "bind" | .driver_opts.device = "./docker-volume/es-data")' ${{ vars.FG_COMPOSE_TARGET }}
+          # fi
 
           # MySQL
           echo "Updating MySQL"
