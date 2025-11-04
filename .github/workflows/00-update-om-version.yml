@@ -26,7 +26,6 @@ jobs:
           echo "LATEST_TAG: ${LATEST_TAG}"
           echo "Current OM_LATEST_RELEASE: ${{ vars.OM_LATEST_RELEASE }}"
           echo "Current LATEST_RELEASE_BRANCH: ${{ vars.LATEST_RELEASE_BRANCH }}"
-          echo "Current LATEST_RELEASE_NAME: ${{ vars.LATEST_RELEASE_NAME }}"
           echo "Current LATEST_ES_RELEASE_BRANCH: ${{ vars.LATEST_ES_RELEASE_BRANCH }}"
 
           # Download the docker-compose.yml from the latest release
@@ -48,12 +47,6 @@ jobs:
           if [[ ${LATEST_BRANCH} != ${{ vars.LATEST_RELEASE_BRANCH }} ]];then
               echo "Updating LATEST_RELEASE_BRANCH variable value to ${LATEST_BRANCH}"
               curl -fSsL -X PATCH -H "Accept: application/vnd.github+json" -H "Authorization: token ${{ env.MY_TOKEN }}" -H "X-GitHub-Api-Version: 2022-11-28" https://api.github.com/repos/${GITHUB_REPOSITORY}/actions/variables/LATEST_RELEASE_BRANCH -d "{\"name\":\"LATEST_RELEASE_BRANCH\",\"value\":\"${LATEST_BRANCH}\"}"
-          fi
-
-          # Update LATEST_RELEASE_NAME if changed
-          if [[ ${LATEST_TAG} != ${{ vars.LATEST_RELEASE_NAME }} ]];then
-              echo "Updating LATEST_RELEASE_NAME variable value to ${LATEST_TAG}"
-              curl -fSsL -X PATCH -H "Accept: application/vnd.github+json" -H "Authorization: token ${{ env.MY_TOKEN }}" -H "X-GitHub-Api-Version: 2022-11-28" https://api.github.com/repos/${GITHUB_REPOSITORY}/actions/variables/LATEST_RELEASE_NAME -d "{\"name\":\"LATEST_RELEASE_NAME\",\"value\":\"${LATEST_TAG}\"}"
           fi
 
           # Update LATEST_ES_RELEASE_BRANCH if changed
