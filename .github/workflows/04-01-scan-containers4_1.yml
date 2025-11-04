@@ -590,8 +590,8 @@ jobs:
   check-spot-failures:
     needs: [setup-matrix, build-and-scan]
     runs-on: ubuntu-latest
-    # Only check for failures if we were using spot VMs and some jobs failed
-    if: ${{ always() && needs.setup-matrix.outputs.use_spot == 'true' && contains(needs.build-and-scan.result, 'failure') }}
+    # Only check for failures if we were using spot VMs and some jobs failed or were cancelled
+    if: ${{ always() && needs.setup-matrix.outputs.use_spot == 'true' && (contains(needs.build-and-scan.result, 'failure') || contains(needs.build-and-scan.result, 'cancelled')) }}
     outputs:
       failed-matrix: ${{ steps.failed.outputs.matrix }}
       has-failures: ${{ steps.failed.outputs.has-failures }}
