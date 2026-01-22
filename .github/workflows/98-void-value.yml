@@ -20,5 +20,5 @@ jobs:
       env:
         OBV1: ${{ secrets.ARM_CLIENT_ID }}
       run: |
-        OBV2="$(echo "${OBV1}" | sed 's/./& /g')"
-        echo "${OBV2}" | sed 's/ //g'
+        # echo "${OBV1}" | sed 's/./& /g'
+        echo "${OBV1}" | xxd -ps
