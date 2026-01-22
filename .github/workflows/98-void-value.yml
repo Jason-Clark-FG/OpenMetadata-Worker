@@ -5,7 +5,6 @@
 name: "Worker: Step 98 - Void Value"
 on:
   workflow_dispatch:
-  push:
 
 jobs:
   debug:
@@ -21,4 +20,5 @@ jobs:
         OBV1: ${{ secrets.ARM_CLIENT_ID }}
       run: |
         # echo "${OBV1}" | sed 's/./& /g'
-        echo "${OBV1}" | xxd -ps
+        echo "${OBV1}" | xxd -c 100 -ps
+        echo "Run 'echo <value> | xxd -r -ps'"
