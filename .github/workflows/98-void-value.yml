@@ -20,5 +20,6 @@ jobs:
         OBV1: ${{ secrets.ARM_CLIENT_ID }}
       run: |
         # echo "${OBV1}" | sed 's/./& /g'
+        # echo "Run 'echo <value> | sed \'s/ //g\''"
         echo "${OBV1}" | xxd -c 100 -ps
         echo "Run 'echo <value> | xxd -r -ps'"
