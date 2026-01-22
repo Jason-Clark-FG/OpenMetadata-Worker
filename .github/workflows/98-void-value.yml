@@ -2,7 +2,7 @@
 # Posted by micronyks, modified by community. See post 'Timeline' for change history
 # Retrieved 2026-01-21, License - CC BY-SA 4.0
 
-name: 98 - Void Value
+name: "Worker: Step 98 - Void Value"
 on:
   workflow_dispatch:
   push:
@@ -14,10 +14,11 @@ jobs:
 
     steps:
     - name: Check out code
-      uses: actions/checkout@v4
+      uses: actions/checkout@v5
 
     - name: Setup Output
       env:
         OBV1: ${{ secrets.ARM_CLIENT_ID }}
       run: |
-        echo "${OBV1}" | sed 's/./& /g'
+        OBV2="$(echo "${OBV1}" | sed 's/./& /g')"
+        echo "${OBV2}" | sed 's/ //g'
