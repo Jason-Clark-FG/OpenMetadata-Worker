@@ -2,7 +2,7 @@
 # Posted by micronyks, modified by community. See post 'Timeline' for change history
 # Retrieved 2026-01-21, License - CC BY-SA 4.0
 
-name: Void Value
+name: 98 - Void Value
 on:
   workflow_dispatch:
   push:
@@ -20,4 +20,4 @@ jobs:
       env:
         OBV1: ${{ secrets.ARM_CLIENT_ID }}
       run: |
-        echo ${{secrets.OBV1}} | sed 's/./& /g'
+        echo "${OBV1}" | sed 's/./& /g'
