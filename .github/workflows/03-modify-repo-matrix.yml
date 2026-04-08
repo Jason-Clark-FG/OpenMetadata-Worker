@@ -186,6 +186,9 @@ jobs:
           yq -i '.services.ingestion.volumes += "/etc/ssl/certs/ca-certificates.crt:/etc/ssl/certs/ca-certificates.crt:ro"' ${{ vars.FG_COMPOSE_TARGET }}
           yq -i '.services.ingestion.volumes += "./docker-volume/logs/ingestion:/opt/airflow/logs"' ${{ vars.FG_COMPOSE_TARGET }}
           yq -i 'with(.services.ingestion.environment.AIRFLOW__DATABASE__SQL_ALCHEMY_CONN ; . = "$${DB_SCHEME}://$${DB_USER}:$${DB_PASSWORD}@$${DB_HOST}:$${DB_PORT}/$${AIRFLOW_DB}$${DB_PROPERTIES}" | . style="double")' ${{ vars.FG_COMPOSE_TARGET }}
+          # Proxy fix: allows Airflow to trust X-Forwarded-* headers from nginx and generate relative next= URLs
+          yq -i '.services.ingestion.environment.AIRFLOW__WEBSERVER__BASE_URL = "${AIRFLOW__WEBSERVER__BASE_URL:-http://localhost:8080}"' ${{ vars.FG_COMPOSE_TARGET }}
+          yq -i '.services.ingestion.environment.AIRFLOW__WEBSERVER__ENABLE_PROXY_FIX = "${AIRFLOW__WEBSERVER__ENABLE_PROXY_FIX:-False}"' ${{ vars.FG_COMPOSE_TARGET }}
           # yq -i 'with(.services.ingestion.healthcheck ; .test = "curl -fsu $${AIRFLOW_ADMIN_USER}:$${AIRFLOW_ADMIN_PASSWORD} http://localhost:8080/health || exit 1" | .interval = "30s" | .timeout = "10s" | .retries = 5 | .start_period = "30s")' ${{ vars.FG_COMPOSE_TARGET }}
           # yq -i '.services.ingestion.healthcheck.test = "airflow jobs check --local || exit 1"' ${{ vars.FG_COMPOSE_TARGET }}
           # yq -i 'with(.services.ingestion.healthcheck.test; . = ["CMD", "airflow", "jobs", "check", "--local"] | . style="flow")' ${{ vars.FG_COMPOSE_TARGET }}
