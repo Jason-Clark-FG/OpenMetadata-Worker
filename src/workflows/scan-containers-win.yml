@@ -33,7 +33,7 @@ jobs:
     steps:
     # Checkout
     - name: Checkout Self
-      uses: actions/checkout@v5
+      uses: actions/checkout@v6
       # with:
       #   path: "self"
 
@@ -52,7 +52,7 @@ jobs:
 
     # # Docker Buildx
     # - name: Setup Docker buildx
-    #   uses: docker/setup-buildx-action@v3
+    #   uses: docker/setup-buildx-action@v4
 
     # Show Info
     - name: "Show: Info"

@@ -34,13 +34,13 @@ jobs:
     steps:
     # Checkout
     - name: Checkout Self
-      uses: actions/checkout@v5
+      uses: actions/checkout@v6
       # with:
       #   path: "self"
 
     # https://github.com/docker/login-action
     - name: Login to Docker Hub
-      uses: docker/login-action@v3
+      uses: docker/login-action@v4
       with:
         username: ${{ secrets.DOCKER_USER }}
         password: ${{ secrets.DOCKER_PAT }}
@@ -61,7 +61,7 @@ jobs:
 
     # Docker Buildx
     - name: Setup Docker buildx
-      uses: docker/setup-buildx-action@v3
+      uses: docker/setup-buildx-action@v4
 
     # Show Info
     - name: "Show: Info"
@@ -331,7 +331,7 @@ jobs:
 
     # Upload logs
     - name: "Mend: Upload logs"
-      uses: actions/upload-artifact@v4
+      uses: actions/upload-artifact@v7
       with:
         name: mend_io_cn_scan_logs
         path: ~/.mend/logs/cn/*.log
