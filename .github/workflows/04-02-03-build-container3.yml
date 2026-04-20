@@ -133,6 +133,34 @@ jobs:
         sudo make install_antlr_cli
         make install_dev generate
 
+    # Verify RI_VERSION exists on PyPI; fall back to highest available patch if not
+    - name: Resolve RI_VERSION
+      shell: bash
+      run: |
+        RI_VERSION=$(grep -oP '(?<=ARG RI_VERSION=")[^"]+' ingestion/Dockerfile)
+        echo "Dockerfile RI_VERSION: $RI_VERSION"
+
+        PIP_OUTPUT=$(pip index versions openmetadata-managed-apis 2>&1)
+        AVAILABLE=$(echo "$PIP_OUTPUT" | grep -oP 'Available versions:.*' | grep -oP '[0-9]+\.[0-9]+\.[0-9]+\.[0-9]+')
+        echo "Available versions: $AVAILABLE"
+
+        if echo "$AVAILABLE" | grep -qx "$RI_VERSION"; then
+          echo "Version $RI_VERSION is available."
+          RESOLVED="$RI_VERSION"
+        else
+          echo "Version $RI_VERSION not found on PyPI — searching for best patch in same series..."
+          PREFIX=$(echo "$RI_VERSION" | cut -d. -f1-3)
+          RESOLVED=$(echo "$AVAILABLE" | grep "^${PREFIX}\." | sort -t. -k4,4 -n | tail -1)
+          if [ -z "$RESOLVED" ]; then
+            echo "No available version found for prefix ${PREFIX}, keeping original value."
+            RESOLVED="$RI_VERSION"
+          else
+            echo "Resolved RI_VERSION: $RESOLVED"
+          fi
+        fi
+
+        echo "RI_VERSION=$RESOLVED" >> $GITHUB_ENV
+
     # Build and push Docker image with Buildx (don't push on PR)
     # https://github.com/docker/build-push-action
     - name: Build and push Docker image
@@ -150,6 +178,8 @@ jobs:
           ${{ steps.meta.outputs.labels }}
           org.opencontainers.image.title=${{ env.IMAGE_BASENAME }}
           org.opencontainers.image.url=https://${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}
+        build-args: |
+          RI_VERSION=${{ env.RI_VERSION }}
         cache-from: type=gha
         cache-to: type=gha,mode=max
 
