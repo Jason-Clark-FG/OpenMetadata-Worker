@@ -24,7 +24,13 @@ jobs:
     steps:
     - id: set-matrix
       run: |
-        echo "matrix={\"target\":[{\"name\":\"dev\",\"release_branch\":\"${{ vars.DEV_RELEASE_BRANCH }}\",\"release_name\":\"${{ vars.DEV_RELEASE_NAME }}\",\"es_release_branch\":\"${{ vars.DEV_ES_RELEASE_BRANCH }}\"},{\"name\":\"prd\",\"release_branch\":\"${{ vars.PROD_RELEASE_BRANCH }}\",\"release_name\":\"${{ vars.PROD_RELEASE_NAME }}\",\"es_release_branch\":\"${{ vars.PROD_ES_RELEASE_BRANCH }}\"},{\"name\":\"latest\",\"release_branch\":\"${{ vars.LATEST_RELEASE_BRANCH }}\",\"release_name\":\"${{ vars.LATEST_RELEASE_NAME }}\",\"es_release_branch\":\"${{ vars.LATEST_ES_RELEASE_BRANCH }}\"}]}" >> $GITHUB_OUTPUT
+        full_matrix='[
+          {"name":"dev","release_branch":"${{ vars.DEV_RELEASE_BRANCH }}","release_name":"${{ vars.DEV_RELEASE_NAME }}","es_release_branch":"${{ vars.DEV_ES_RELEASE_BRANCH }}"},
+          {"name":"prd","release_branch":"${{ vars.PROD_RELEASE_BRANCH }}","release_name":"${{ vars.PROD_RELEASE_NAME }}","es_release_branch":"${{ vars.PROD_ES_RELEASE_BRANCH }}"},
+          {"name":"latest","release_branch":"${{ vars.LATEST_RELEASE_BRANCH }}","release_name":"${{ vars.LATEST_RELEASE_NAME }}","es_release_branch":"${{ vars.LATEST_ES_RELEASE_BRANCH }}"}
+        ]'
+        deduped=$(echo "$full_matrix" | jq -c '[group_by([.release_branch, .es_release_branch])[] | first]')
+        echo "matrix={\"target\":${deduped}}" >> $GITHUB_OUTPUT
 
   check-matrix:
     runs-on: ubuntu-latest
