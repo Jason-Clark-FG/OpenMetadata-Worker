@@ -834,11 +834,14 @@ jobs:
           fi
 
           echo "🗑️ Deleting resource group: $resource_group"
-          if az group delete --resource-group "$resource_group" --yes --no-wait; then
+          if delete_output=$(az group delete --resource-group "$resource_group" --yes --no-wait 2>&1); then
             echo "✅ Successfully initiated deletion of resource group: $resource_group"
             echo "🕐 Resource group deletion is running in the background"
+          elif echo "$delete_output" | grep -q "ResourceGroupNotFound"; then
+            echo "✅ Resource group $resource_group was already deleted (race condition with parallel cleanup)"
           else
             echo "❌ Failed to delete resource group: $resource_group"
+            echo "Error: $delete_output"
             echo "Manual cleanup required:"
             echo "  az group delete --resource-group $resource_group --yes"
             exit 1
