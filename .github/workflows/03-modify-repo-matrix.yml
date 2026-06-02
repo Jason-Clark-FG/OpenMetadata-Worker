@@ -29,7 +29,12 @@ jobs:
           {"name":"prd","release_branch":"${{ vars.PROD_RELEASE_BRANCH }}","release_name":"${{ vars.PROD_RELEASE_NAME }}","es_release_branch":"${{ vars.PROD_ES_RELEASE_BRANCH }}"},
           {"name":"latest","release_branch":"${{ vars.LATEST_RELEASE_BRANCH }}","release_name":"${{ vars.LATEST_RELEASE_NAME }}","es_release_branch":"${{ vars.LATEST_ES_RELEASE_BRANCH }}"}
         ]'
-        deduped=$(echo "$full_matrix" | jq -c '[group_by([.release_branch, .es_release_branch])[] | first]')
+        # prd must always be included so the prod branch exists for ADO deployments;
+        # deduplicate only among non-prd entries (e.g. drop latest if it matches dev)
+        deduped=$(echo "$full_matrix" | jq -c '
+          (map(select(.name == "prd"))) +
+          [map(select(.name != "prd")) | group_by([.release_branch, .es_release_branch])[] | first]
+        ')
         echo "matrix={\"target\":${deduped}}" >> $GITHUB_OUTPUT
 
   check-matrix:
