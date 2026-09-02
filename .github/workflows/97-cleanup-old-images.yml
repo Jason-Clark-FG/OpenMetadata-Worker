@@ -1,4 +1,4 @@
-name: Cleanup Old Container Images
+name: "Worker: Step 97 - Cleanup Old Container Images"
 on:
   schedule:
     - cron: '0 1 * * 0'
