@@ -12,7 +12,6 @@ on:
 env:
   # Images only need to survive long enough for vuln scanning - no rollback need.
   KEEP_TAGGED: 2
-  KEEP_UNTAGGED: 0
   OLDER_THAN: '3 days'
 
 jobs:
@@ -36,7 +35,6 @@ jobs:
         with:
           package: ${{ matrix.package-name }}
           keep-n-tagged: ${{ env.KEEP_TAGGED }}
-          keep-n-untagged: ${{ env.KEEP_UNTAGGED }}
           older-than: ${{ env.OLDER_THAN }}
           exclude-tags: latest
           delete-untagged: true
