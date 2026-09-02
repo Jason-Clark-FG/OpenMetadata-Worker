@@ -29,6 +29,7 @@ jobs:
           - 'openmetadata-ingestion'
           - 'openmetadata-elasticsearch'
       fail-fast: false
+      max-parallel: 1
     steps:
       - name: Delete old versions of ${{ matrix.package-name }}
         uses: dataaxiom/ghcr-cleanup-action@v1
