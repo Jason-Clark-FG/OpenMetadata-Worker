@@ -63,7 +63,7 @@ jobs:
     steps:
     # Checkout
     - name: Checkout repository
-      uses: actions/checkout@v6
+      uses: actions/checkout@v7
       with:
         repository: elastic/dockerfiles
         fetch-depth: 0
@@ -150,7 +150,7 @@ jobs:
         summary: true
 
     - name: Checkout Self
-      uses: actions/checkout@v6
+      uses: actions/checkout@v7
       with:
         path: "self"
 
