@@ -3,9 +3,17 @@ on:
   schedule:
     - cron: '0 1 * * 0'
   workflow_dispatch:
+    inputs:
+      dry_run:
+        description: 'Preview deletions without actually deleting'
+        type: boolean
+        default: true
 
 env:
-  MIN_VERSIONS_TO_KEEP: 10
+  # Images only need to survive long enough for vuln scanning - no rollback need.
+  KEEP_TAGGED: 2
+  KEEP_UNTAGGED: 0
+  OLDER_THAN: '3 days'
 
 jobs:
   cleanup:
@@ -27,5 +35,13 @@ jobs:
         uses: dataaxiom/ghcr-cleanup-action@v1
         with:
           package: ${{ matrix.package-name }}
-          keep-n-untagged: ${{ env.MIN_VERSIONS_TO_KEEP }}
+          keep-n-tagged: ${{ env.KEEP_TAGGED }}
+          keep-n-untagged: ${{ env.KEEP_UNTAGGED }}
+          older-than: ${{ env.OLDER_THAN }}
+          exclude-tags: latest
+          delete-untagged: true
+          dry-run: ${{ github.event_name == 'workflow_dispatch' && inputs.dry_run || false }}
           token: ${{ secrets.GITHUB_TOKEN }}
+  # First runs: trigger manually via workflow_dispatch with dry_run checked,
+  # confirm the log output looks right, then re-run for real (repeat as needed
+  # to burn down the backlog - no need to wait for the weekly schedule).
