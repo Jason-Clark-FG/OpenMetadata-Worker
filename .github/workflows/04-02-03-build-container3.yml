@@ -101,7 +101,7 @@ jobs:
             -H "Authorization: Bearer ${token}" \
             "https://hub.docker.com/v2/repositories/${DOCKER_USER}/${{ env.IMAGE_BASENAME }}/")
 
-          if [[ "$status" == "204" || "$status" == "404" ]]; then
+          if [[ "$status" == "202" || "$status" == "204" || "$status" == "404" ]]; then
             echo "Repository ${DOCKER_USER}/${{ env.IMAGE_BASENAME }} reset (HTTP ${status})."
           else
             echo "::error::Failed to delete ${DOCKER_USER}/${{ env.IMAGE_BASENAME }} (HTTP ${status})"

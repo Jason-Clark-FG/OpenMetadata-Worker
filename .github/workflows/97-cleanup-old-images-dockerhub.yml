@@ -82,7 +82,7 @@ jobs:
               status=$(curl -s -o /dev/null -w "%{http_code}" -X DELETE \
                 -H "Authorization: Bearer ${token}" \
                 "https://hub.docker.com/v2/repositories/${DOCKER_USER}/${REPO_NAME}/tags/${tag}/")
-              if [[ "$status" == "204" ]]; then
+              if [[ "$status" == "202" || "$status" == "204" ]]; then
                 echo "  deleted ${DOCKER_USER}/${REPO_NAME}:${tag}"
               else
                 echo "::warning::failed to delete ${DOCKER_USER}/${REPO_NAME}:${tag} (HTTP ${status})"
