@@ -1,0 +1,57 @@
+name: "Worker: Step 96 - Report Docker Hub Usage"
+on:
+  workflow_dispatch:
+
+jobs:
+  report:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    strategy:
+      matrix:
+        # Images produced by the 04-02-0*-build-container* workflows
+        repo-name:
+          - 'fg-openmetadata-db'
+          - 'fg-openmetadata-server'
+          - 'fg-openmetadata-ingestion'
+          - 'fg-elasticsearch'
+      fail-fast: false
+    steps:
+      - name: Report tag sizes for ${{ secrets.DOCKER_USER }}/${{ matrix.repo-name }}
+        env:
+          DOCKER_USER: ${{ secrets.DOCKER_USER }}
+          DOCKER_PAT: ${{ secrets.DOCKER_PAT }}
+          REPO_NAME: ${{ matrix.repo-name }}
+        run: |
+          set -euo pipefail
+
+          token=$(curl -s -H "Content-Type: application/json" \
+            -X POST -d "{\"username\": \"${DOCKER_USER}\", \"password\": \"${DOCKER_PAT}\"}" \
+            https://hub.docker.com/v2/users/login/ | jq -r .token)
+
+          if [[ -z "$token" || "$token" == "null" ]]; then
+            echo "::error::Docker Hub login failed for ${DOCKER_USER}"
+            exit 1
+          fi
+
+          echo "== ${DOCKER_USER}/${REPO_NAME} =="
+
+          url="https://hub.docker.com/v2/repositories/${DOCKER_USER}/${REPO_NAME}/tags/?page_size=100"
+          total_bytes=0
+
+          while [[ -n "$url" && "$url" != "null" ]]; do
+            page=$(curl -s -H "Authorization: Bearer ${token}" "$url")
+
+            echo "$page" | jq -r '.results[] | "\(.name)\t\(.full_size)\t\(.last_updated)"' | \
+              while IFS=$'\t' read -r name size updated; do
+                printf "  %-20s %12s bytes   last updated %s\n" "$name" "$size" "$updated"
+              done
+
+            page_total=$(echo "$page" | jq '[.results[].full_size] | add // 0')
+            total_bytes=$((total_bytes + page_total))
+
+            url=$(echo "$page" | jq -r '.next')
+          done
+
+          echo "  ---"
+          echo "  total: ${total_bytes} bytes ($((total_bytes / 1024 / 1024)) MiB) across all tags"
