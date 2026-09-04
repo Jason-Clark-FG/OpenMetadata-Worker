@@ -1,0 +1,94 @@
+name: "Worker: Step 97 - Cleanup Old Container Images (Docker Hub)"
+on:
+  schedule:
+    - cron: '0 2 * * 0'
+  workflow_dispatch:
+    inputs:
+      dry_run:
+        description: 'Preview deletions without actually deleting'
+        type: boolean
+        default: true
+
+env:
+  # Always keeps "latest" plus this many of the newest version tags; everything else is deleted.
+  KEEP_TAGGED: 2
+
+jobs:
+  cleanup:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    strategy:
+      matrix:
+        # Images produced by the 04-02-0*-build-container* workflows
+        repo-name:
+          - 'fg-openmetadata-db'
+          - 'fg-openmetadata-server'
+          - 'fg-openmetadata-ingestion'
+          - 'fg-elasticsearch'
+      fail-fast: false
+      max-parallel: 1
+    steps:
+      - name: Delete old tags of ${{ secrets.DOCKER_USER }}/${{ matrix.repo-name }}
+        env:
+          DOCKER_USER: ${{ secrets.DOCKER_USER }}
+          DOCKER_PAT: ${{ secrets.DOCKER_PAT }}
+          REPO_NAME: ${{ matrix.repo-name }}
+          DRY_RUN: ${{ github.event_name == 'workflow_dispatch' && inputs.dry_run || false }}
+        run: |
+          set -euo pipefail
+
+          token=$(curl -s -H "Content-Type: application/json" \
+            -X POST -d "{\"username\": \"${DOCKER_USER}\", \"password\": \"${DOCKER_PAT}\"}" \
+            https://hub.docker.com/v2/users/login/ | jq -r .token)
+
+          if [[ -z "$token" || "$token" == "null" ]]; then
+            echo "::error::Docker Hub login failed for ${DOCKER_USER}"
+            exit 1
+          fi
+
+          echo "== ${DOCKER_USER}/${REPO_NAME} (dry_run=${DRY_RUN}) =="
+
+          tmpfile=$(mktemp)
+          echo '[]' > "$tmpfile"
+          url="https://hub.docker.com/v2/repositories/${DOCKER_USER}/${REPO_NAME}/tags/?page_size=100"
+
+          while [[ -n "$url" && "$url" != "null" ]]; do
+            page=$(curl -s -H "Authorization: Bearer ${token}" "$url")
+            jq -s '.[0] + .[1].results' "$tmpfile" <(echo "$page") > "${tmpfile}.new"
+            mv "${tmpfile}.new" "$tmpfile"
+            url=$(echo "$page" | jq -r '.next')
+          done
+
+          # Always keep "latest"; of the rest, keep the KEEP_TAGGED newest by last_updated and delete the remainder.
+          to_delete=$(jq -r --argjson keep "${KEEP_TAGGED}" '
+            [.[] | select(.name != "latest")]
+            | sort_by(.last_updated) | reverse
+            | .[$keep:]
+            | .[].name
+          ' "$tmpfile")
+          rm -f "$tmpfile"
+
+          if [[ -z "$to_delete" ]]; then
+            echo "  nothing to delete (${KEEP_TAGGED} or fewer old tags present)"
+            exit 0
+          fi
+
+          while IFS= read -r tag; do
+            [[ -z "$tag" ]] && continue
+            if [[ "${DRY_RUN}" == "true" ]]; then
+              echo "  [dry-run] would delete ${DOCKER_USER}/${REPO_NAME}:${tag}"
+            else
+              status=$(curl -s -o /dev/null -w "%{http_code}" -X DELETE \
+                -H "Authorization: Bearer ${token}" \
+                "https://hub.docker.com/v2/repositories/${DOCKER_USER}/${REPO_NAME}/tags/${tag}/")
+              if [[ "$status" == "204" ]]; then
+                echo "  deleted ${DOCKER_USER}/${REPO_NAME}:${tag}"
+              else
+                echo "::warning::failed to delete ${DOCKER_USER}/${REPO_NAME}:${tag} (HTTP ${status})"
+              fi
+            fi
+          done <<< "$to_delete"
+  # First run: trigger manually via workflow_dispatch with dry_run checked,
+  # confirm the log output looks right, then re-run for real (repeat as needed
+  # to burn down the backlog - no need to wait for the weekly schedule).
