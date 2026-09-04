@@ -2,8 +2,6 @@ name: "Worker: Step 4.3 - Rebuild Container 1"
 
 on:
   workflow_dispatch:
-  schedule:
-    - cron: '0 2 * * *'
   # Ref: https://docs.github.com/en/actions/using-workflows/events-that-trigger-workflows#workflow_run
   workflow_run:
     workflows: ["Worker: Step 3 - Modify Work Repo Matrix"]
@@ -45,8 +43,7 @@ jobs:
   # Ref: https://docs.github.com/en/actions/learn-github-actions/expressions#fromjson
   matrix:
     runs-on: ubuntu-latest
-    # if: ${{ github.event.workflow_run.conclusion == 'success' || github.event_name == 'workflow_dispatch' }}
-    if: ${{ github.event.workflow_run.conclusion == 'success' || github.event_name == 'schedule' || github.event_name == 'workflow_dispatch' }}
+    if: ${{ github.event.workflow_run.conclusion == 'success' || github.event_name == 'workflow_dispatch' }}
     outputs:
       matrix: ${{ steps.set-matrix.outputs.matrix }}
     steps:

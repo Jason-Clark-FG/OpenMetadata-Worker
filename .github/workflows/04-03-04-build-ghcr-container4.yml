@@ -8,7 +8,6 @@ on:
   workflow_run:
     workflows:
       - "Worker: Step 3 - Modify Work Repo Matrix"
-      - "Worker: Step 4.3 - Rebuild Container 1"
     types:
       - completed
 
