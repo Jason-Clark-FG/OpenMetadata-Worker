@@ -1,7 +1,7 @@
 name: "Worker: Step 97 - Cleanup Old Container Images (Docker Hub)"
 on:
-  schedule:
-    - cron: '0 2 * * 0'
+  # schedule:
+  #   - cron: '0 2 * * 0'
   workflow_dispatch:
     inputs:
       dry_run:

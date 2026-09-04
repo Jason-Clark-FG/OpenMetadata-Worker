@@ -49,9 +49,43 @@ jobs:
           echo $matrix | jq .
           echo $matrix | json2yaml
 
-  build:
+  reset-dockerhub-repo:
     runs-on: ubuntu-latest
     needs: matrix
+    if: ${{ github.event.workflow_run.conclusion == 'success' || github.event_name == 'workflow_dispatch' }}
+    steps:
+      # Docker Hub keeps every manifest a tag ever pointed at (no API to prune them), so we
+      # delete the whole repo before rebuilding - the push below recreates it clean.
+      - name: Delete Docker Hub repository ${{ secrets.DOCKER_USER }}/${{ env.IMAGE_BASENAME }}
+        env:
+          DOCKER_USER: ${{ secrets.DOCKER_USER }}
+          DOCKER_PAT: ${{ secrets.DOCKER_PAT }}
+        run: |
+          set -euo pipefail
+
+          token=$(curl -s -H "Content-Type: application/json" \
+            -X POST -d "{\"username\": \"${DOCKER_USER}\", \"password\": \"${DOCKER_PAT}\"}" \
+            https://hub.docker.com/v2/users/login/ | jq -r .token)
+
+          if [[ -z "$token" || "$token" == "null" ]]; then
+            echo "::error::Docker Hub login failed for ${DOCKER_USER}"
+            exit 1
+          fi
+
+          status=$(curl -s -o /dev/null -w "%{http_code}" -X DELETE \
+            -H "Authorization: Bearer ${token}" \
+            "https://hub.docker.com/v2/repositories/${DOCKER_USER}/${{ env.IMAGE_BASENAME }}/")
+
+          if [[ "$status" == "204" || "$status" == "404" ]]; then
+            echo "Repository ${DOCKER_USER}/${{ env.IMAGE_BASENAME }} reset (HTTP ${status})."
+          else
+            echo "::error::Failed to delete ${DOCKER_USER}/${{ env.IMAGE_BASENAME }} (HTTP ${status})"
+            exit 1
+          fi
+
+  build:
+    runs-on: ubuntu-latest
+    needs: [matrix, reset-dockerhub-repo]
     permissions:
       security-events: write
       actions: read
