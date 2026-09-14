@@ -169,8 +169,6 @@ jobs:
           ${{ steps.meta.outputs.labels }}
           org.opencontainers.image.title=${{ env.IMAGE_BASENAME }}
           org.opencontainers.image.url=https://${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}
-        cache-from: type=gha
-        cache-to: type=gha,mode=max
 
     # - name: Docker Scout
     #   id: docker-scout

@@ -146,8 +146,8 @@ jobs:
           org.opencontainers.image.description=${{ env.IMAGE_DESCRIPTION }}
           org.opencontainers.image.title=${{ env.IMAGE_BASENAME }}
           org.opencontainers.image.url=${{ env.IMAGE_URL }}
-        cache-from: type=gha
-        cache-to: type=gha,mode=max
+        cache-from: type=registry,ref=${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:buildcache
+        cache-to: type=registry,ref=${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:buildcache,mode=max
 
     # Show Info
     - name: "Show: Info"

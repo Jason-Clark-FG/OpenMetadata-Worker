@@ -169,8 +169,8 @@ jobs:
           org.opencontainers.image.url=${{ env.IMAGE_URL }}
         build-args: |
           RI_VERSION=${{ env.RI_VERSION }}
-        cache-from: type=gha
-        cache-to: type=gha,mode=max
+        cache-from: type=registry,ref=${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:buildcache
+        cache-to: type=registry,ref=${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:buildcache,mode=max
 
     # Show Info
     - name: "Show: Info"
