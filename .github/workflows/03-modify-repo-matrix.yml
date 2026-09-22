@@ -180,9 +180,11 @@ jobs:
           yq -i '.services.mysql.healthcheck.start_period = "120s"' ${{ vars.FG_COMPOSE_TARGET }}
 
           # Migrate-All
-          # echo "Updating Migrate-All"
+          echo "Updating Migrate-All"
           # yq -i 'with(.services.execute-migrate-all; .mem_limit = "3g" | .mem_reservation = "1.5g" | .cpus = 2.0)' ${{ vars.FG_COMPOSE_TARGET }}
           # yq -i ".services.execute-migrate-all.restart = \"on-failure\"" ${{ vars.FG_COMPOSE_TARGET }}
+          # Increase the DB migration query timeout (default is too short for large schemas); override at runtime via DB_QUERY_TIMEOUT_SECONDS
+          yq -i '.services.execute-migrate-all.environment.DB_QUERY_TIMEOUT_SECONDS = "${DB_QUERY_TIMEOUT_SECONDS:-3600}"' ${{ vars.FG_COMPOSE_TARGET }}
 
           # Server
           echo "Updating Server"
