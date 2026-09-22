@@ -166,6 +166,13 @@ jobs:
             yq -i '(.services.[].image | select(. != null and test(":2\.0\.0"))) |= sub(":2\.0\.0"; ":2.0.1")' ${{ vars.FG_COMPOSE_TARGET }}
           fi
 
+          # Supplier Image Tag Fix (2.0.2 branch only)
+          # The supplier's 2.0.2 docker-compose still tags db/server/ingestion images as 2.0.0; correct them here.
+          if [[ "${{ matrix.target.release_branch }}" == "2.0.2" ]]; then
+            echo "Fixing supplier image tags: 2.0.0 -> 2.0.2"
+            yq -i '(.services.[].image | select(. != null and test(":2\.0\.0"))) |= sub(":2\.0\.0"; ":2.0.2")' ${{ vars.FG_COMPOSE_TARGET }}
+          fi
+
           # MySQL
           echo "Updating MySQL"
           ## Ref: https://dev.mysql.com/doc/refman/8.0/en/docker-mysql-more-topics.html#docker_var_mysql-root-host
