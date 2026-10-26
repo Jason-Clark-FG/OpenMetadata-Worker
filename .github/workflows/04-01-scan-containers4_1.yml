@@ -22,6 +22,11 @@ on:
           - 'Standard_F8s_v2'
           - 'Standard_D8as_v5'
 
+# All runs share one resource group and fixed VM names, so never let two runs overlap
+concurrency:
+  group: ${{ github.workflow }}
+  cancel-in-progress: false
+
 env:
   IMAGE_REGISTRY_1: docker.getcollate.io
   IMAGE_REGISTRY_2: docker.elastic.co
@@ -89,7 +94,7 @@ jobs:
         latest_suffix=$(shuf -er -n8 {a..z} | paste -sd '')
 
         # Determine label prefix based on VM type
-        if [[ "$use_spot" == "true" ]]; then
+        if [[ "${{ steps.config.outputs.use_spot }}" == "true" ]]; then
           label_prefix="spot"
         else
           label_prefix="regular"
@@ -432,9 +437,9 @@ jobs:
   # Sequential cleanup VMs (wait for build jobs to complete first)
   cleanup-vms:
     needs: [setup-matrix, create-vms, build-and-scan]
-    # Always run cleanup if VMs were created, regardless of build success/failure
-    # This ensures cleanup happens even if builds fail or are cancelled
-    if: ${{ always() && !contains(needs.create-vms.result, 'failure') && !contains(needs.create-vms.result, 'cancelled') && !contains(needs.create-vms.result, 'skipped') }}
+    # Always run cleanup if VM creation was attempted, regardless of build success/failure
+    # A failed create (e.g. runner never came online) can still leave a VM behind
+    if: ${{ always() && needs.create-vms.result != 'skipped' }}
     strategy:
       matrix:
         image: ${{ fromJson(needs.setup-matrix.outputs.matrix) }}
@@ -458,7 +463,7 @@ jobs:
   emergency-cleanup:
     needs: [setup-matrix, create-vms, cleanup-vms]
     # Run if cleanup had any issues or if VMs were actually created (covers partial failures)
-    if: ${{ always() && !contains(needs.create-vms.result, 'failure') && !contains(needs.create-vms.result, 'cancelled') && !contains(needs.create-vms.result, 'skipped') }}
+    if: ${{ always() && needs.create-vms.result != 'skipped' }}
     runs-on: ubuntu-latest
     steps:
     - name: Emergency VM Cleanup
@@ -586,27 +591,37 @@ jobs:
         echo "⏳ Waiting 60 seconds for Azure to process resource deletions..."
         sleep 60
 
-  # Optional: Determine which scans failed and need retry (only if using spot VMs and they failed)
+  # Determine which scans failed and need retry on regular VMs
+  # Covers spot evictions and VM creation failures (build-and-scan skipped when any create fails)
   check-spot-failures:
-    needs: [setup-matrix, build-and-scan]
+    needs: [setup-matrix, create-vms, build-and-scan]
     runs-on: ubuntu-latest
-    # Only check for failures if we were using spot VMs and some jobs failed or were cancelled
-    if: ${{ always() && needs.setup-matrix.outputs.use_spot == 'true' && (contains(needs.build-and-scan.result, 'failure') || contains(needs.build-and-scan.result, 'cancelled')) }}
+    if: ${{ always() && !cancelled() && needs.create-vms.result != 'skipped' && needs.build-and-scan.result != 'success' }}
+    permissions:
+      actions: read
     outputs:
       failed-matrix: ${{ steps.failed.outputs.matrix }}
       has-failures: ${{ steps.failed.outputs.has-failures }}
     steps:
-    - name: Determine Failed Spot Scans
+    - name: Determine Failed Scans
       id: failed
+      env:
+        GH_TOKEN: ${{ github.token }}
       run: |
-        echo "Checking for failed spot VM scans that need retry on regular VMs..."
+        echo "Checking for failed scans that need retry on regular VMs..."
 
         original_matrix='${{ needs.setup-matrix.outputs.matrix }}'
         echo "Original matrix: $original_matrix"
 
-        # For now, create a simplified failed matrix
-        # In a real scenario, you'd need more sophisticated logic to determine which specific matrix jobs failed
-        failed_matrix=$(echo "$original_matrix")
+        # Names of build-and-scan legs that succeeded in this run attempt (names embed the matrix label)
+        succeeded_jobs=$(gh api --paginate "repos/${{ github.repository }}/actions/runs/${{ github.run_id }}/attempts/${{ github.run_attempt }}/jobs" \
+          --jq '.jobs[] | select((.name | startswith("build-and-scan (")) and .conclusion == "success") | .name' \
+          | jq -R . | jq -sc .)
+        echo "Succeeded scan jobs: $succeeded_jobs"
+
+        # Retry only the legs without a successful scan
+        failed_matrix=$(echo "$original_matrix" | jq -c --argjson ok "$succeeded_jobs" \
+          '[.[] | . as $leg | select(($ok | map(contains($leg.label)) | any) | not)]')
 
         # Check if we have any failures
         if [[ "$(echo "$failed_matrix" | jq length)" -gt 0 ]]; then
@@ -777,7 +792,7 @@ jobs:
   # Final cleanup of retry VMs
   cleanup-retry-vms:
     needs: [check-spot-failures, create-retry-vms, retry-on-regular]
-    if: ${{ always() && !contains(needs.create-retry-vms.result, 'failure') && !contains(needs.create-retry-vms.result, 'cancelled') && !contains(needs.create-retry-vms.result, 'skipped') }}
+    if: ${{ always() && needs.create-retry-vms.result != 'skipped' }}
     strategy:
       matrix:
         image: ${{ fromJson(needs.check-spot-failures.outputs.failed-matrix) }}
@@ -800,7 +815,7 @@ jobs:
   cleanup-resource-group:
     needs: [setup-matrix, create-vms, cleanup-vms, emergency-cleanup, cleanup-retry-vms]
     # Only run if we created VMs and either normal cleanup succeeded or emergency cleanup ran
-    if: ${{ always() && !contains(needs.create-vms.result, 'failure') && !contains(needs.create-vms.result, 'cancelled') && (needs.cleanup-vms.result == 'success' || needs.emergency-cleanup.result == 'success' || needs.cleanup-retry-vms.result == 'success') }}
+    if: ${{ always() && needs.create-vms.result != 'skipped' && (needs.cleanup-vms.result == 'success' || needs.emergency-cleanup.result == 'success' || needs.cleanup-retry-vms.result == 'success') }}
     runs-on: ubuntu-latest
     steps:
     - name: Delete Resource Group
@@ -881,7 +896,8 @@ jobs:
         # Check for potential issues
         if [[ "${{ needs.create-vms.result }}" == "failure" ]]; then
           echo "⚠️  VM Creation Failed - Possible Issues:"
-          echo "  - Azure quota exceeded (check vCPU limits)"
+          echo "  - Azure quota exceeded (check vCPU and Public IP Address limits)"
+          echo "  - Runner never came online (check VM boot diagnostics)"
           echo "  - Network connectivity problems"
           echo "  - Authentication issues"
           echo "  - Resource group access problems"
