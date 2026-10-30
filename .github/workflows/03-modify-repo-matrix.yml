@@ -130,7 +130,8 @@ jobs:
           command -v yq >/dev/null 2>&1;echo $?
 
           # Top Level Elements
-          compose_top_level_name="${${{ vars.FG_COMPOSE_TOP_LEVEL_NAME }}:-openmetadata}"
+          compose_top_level_name="${{ vars.FG_COMPOSE_TOP_LEVEL_NAME }}"
+          compose_top_level_name="${compose_top_level_name:-openmetadata}"
           top_level_name=$(yq ".name" ${{ vars.FG_COMPOSE_TARGET }})
           if [[ ${top_level_name} == null ]];then
             echo "Adding top-level name"
@@ -173,12 +174,22 @@ jobs:
             yq -i '(.services.[].image | select(. != null and test(":2\.0\.0"))) |= sub(":2\.0\.0"; ":2.0.2")' ${{ vars.FG_COMPOSE_TARGET }}
           fi
 
+          # Memory Limit Helper
+          # Prints the -Xmx value of a JVM options string in MiB (nothing if there is no -Xmx)
+          xmx_mib() {
+            echo "$1" | awk 'match($0, /-Xmx[0-9]+[kKmMgG]/) { size = substr($0, RSTART + 4, RLENGTH - 5); unit = tolower(substr($0, RSTART + RLENGTH - 1, 1)); print (unit == "g" ? size * 1024 : (unit == "k" ? int(size / 1024) : size)) }'
+          }
+
           # MySQL
           echo "Updating MySQL"
           ## Ref: https://dev.mysql.com/doc/refman/8.0/en/docker-mysql-more-topics.html#docker_var_mysql-root-host
           yq -i '.services.mysql.command = "--sort_buffer_size=20M"' ${{ vars.FG_COMPOSE_TARGET }}
           yq -i '.services.mysql.command += " --log-bin-trust-function-creators=1"' ${{ vars.FG_COMPOSE_TARGET }}
-          # yq -i 'with(.services.mysql.deploy.resources; .limits.cpus = "2" | .limits.memory = "11G" | .reservations.cpus = "0.5" | .reservations.memory = "7G")' ${{ vars.FG_COMPOSE_TARGET }}
+          yq -i '.services.mysql.command += " --innodb-buffer-pool-size=${MYSQL_INNODB_BUFFER_POOL_SIZE:-9G}"' ${{ vars.FG_COMPOSE_TARGET }}
+          yq -i '.services.mysql.command += " --innodb_lock_wait_timeout=${MYSQL_INNODB_LOCK_WAIT_TIMEOUT:-1200}"' ${{ vars.FG_COMPOSE_TARGET }}
+          # Defaults match a 30 GB VM, the ADO pipeline overrides them by VM size
+          # Limit: 9G pool + ~25% InnoDB overhead + 3G connections/perf_schema
+          yq -i 'with(.services.mysql; .mem_limit = "${MYSQL_MEM_LIMIT:-14g}" | .mem_reservation = "${MYSQL_MEM_RESERVATION:-4g}")' ${{ vars.FG_COMPOSE_TARGET }}
           yq -i '.services.mysql.environment.MYSQL_ROOT_PASSWORD = "${MYSQL_ROOT_PASSWORD:-password}"' ${{ vars.FG_COMPOSE_TARGET }}
           yq -i '.services.mysql.environment.MYSQL_ROOT_HOST = "${MYSQL_ROOT_HOST:-%}"' ${{ vars.FG_COMPOSE_TARGET }}
           yq -i '.services.mysql.environment.OM_DATABASE = "${OM_DATABASE:-openmetadata_db}"' ${{ vars.FG_COMPOSE_TARGET }}
@@ -195,7 +206,17 @@ jobs:
 
           # Server
           echo "Updating Server"
-          # yq -i 'with(.services.openmetadata-server; .mem_limit = "3g" | .mem_reservation = "1.5g" | .cpus = 2.0)' ${{ vars.FG_COMPOSE_TARGET }}
+          # Limit defaults to the supplier heap + ~2g
+          om_heap_opts=$(yq '.services.openmetadata-server.environment.OPENMETADATA_HEAP_OPTS' ${{ vars.FG_COMPOSE_TARGET }})
+          om_heap_mib=$(xmx_mib "${om_heap_opts}")
+          if [[ -z ${om_heap_mib} ]];then
+            echo "::warning::No -Xmx found in OPENMETADATA_HEAP_OPTS, assuming 1024 MiB"
+            om_heap_mib=1024
+          fi
+          om_mem_limit="$(( (om_heap_mib + 2048 + 1023) / 1024 ))g"
+          om_mem_reservation="$(( (om_heap_mib + 1023) / 1024 ))g"
+          echo "Server heap ${om_heap_mib} MiB: default mem_limit ${om_mem_limit}, mem_reservation ${om_mem_reservation}"
+          yq -i "with(.services.openmetadata-server; .mem_limit = \"\${OM_SERVER_MEM_LIMIT:-${om_mem_limit}}\" | .mem_reservation = \"\${OM_SERVER_MEM_RESERVATION:-${om_mem_reservation}}\")" ${{ vars.FG_COMPOSE_TARGET }}
           # yq -i '.services.execute-migrate-all.environment.AIRFLOW_HOST = "${AIRFLOW_HOST:-"http://ingestion:8080"}"' ${{ vars.FG_COMPOSE_TARGET }}
           # yq -i '.services.openmetadata-server.environment.AIRFLOW_HOST = "${AIRFLOW_HOST:-"http://ingestion:8080"}"' ${{ vars.FG_COMPOSE_TARGET }}
           # Incorporate healthcheck fix (no longer necessary from version 1.1.1 onward)
@@ -205,7 +226,7 @@ jobs:
 
           # Ingestion
           echo "Updating Ingestion"
-          # yq -i 'with(.services.ingestion; .mem_limit = "6g" | .mem_reservation = "3g" | .cpus = 4.0)' ${{ vars.FG_COMPOSE_TARGET }}
+          yq -i 'with(.services.ingestion; .mem_limit = "${INGESTION_MEM_LIMIT:-6g}" | .mem_reservation = "${INGESTION_MEM_RESERVATION:-3g}")' ${{ vars.FG_COMPOSE_TARGET }}
           # Add Airflow Settings
           yq -i '.services.ingestion.environment.AIRFLOW_ADMIN_USER = "${AIRFLOW_ADMIN_USER:-admin}" | .services.ingestion.environment.AIRFLOW_ADMIN_PASSWORD = "${AIRFLOW_ADMIN_PASSWORD:-admin}"' ${{ vars.FG_COMPOSE_TARGET }}
           ## Sep 19 2024: Now pymssql is installed by default, so we do not need to override the entrypoint command
@@ -227,7 +248,17 @@ jobs:
           echo "Updating Elasticsearch"
           ## Sep 19 2024: We no longer need to override the ES container version
           # yq -i '.services.elasticsearch.image |= sub("[0-9]\..*", "${{ matrix.target.es_release_branch }}")' ${{ vars.FG_COMPOSE_TARGET }}
-          # yq -i 'with(.services.elasticsearch; .mem_limit = "4g" | .mem_reservation = "2g" | .cpus = 2.0)' ${{ vars.FG_COMPOSE_TARGET }}
+          # Limit defaults to 2.5x the supplier heap, because Lucene uses off-heap memory
+          es_java_opts=$(yq '.services.elasticsearch.environment.[] | select(. == "ES_JAVA_OPTS=*")' ${{ vars.FG_COMPOSE_TARGET }})
+          es_heap_mib=$(xmx_mib "${es_java_opts}")
+          if [[ -z ${es_heap_mib} ]];then
+            echo "::warning::No -Xmx found in ES_JAVA_OPTS, assuming 1024 MiB"
+            es_heap_mib=1024
+          fi
+          es_mem_limit="$(( es_heap_mib * 5 / 2 ))m"
+          es_mem_reservation="$(( (es_heap_mib + 1023) / 1024 ))g"
+          echo "Elasticsearch heap ${es_heap_mib} MiB: default mem_limit ${es_mem_limit}, mem_reservation ${es_mem_reservation}"
+          yq -i "with(.services.elasticsearch; .mem_limit = \"\${ES_MEM_LIMIT:-${es_mem_limit}}\" | .mem_reservation = \"\${ES_MEM_RESERVATION:-${es_mem_reservation}}\")" ${{ vars.FG_COMPOSE_TARGET }}
           es_xpack_security=$(yq '.services.elasticsearch.environment.[] | select(. == "xpack.security.enabled=*")' ${{ vars.FG_COMPOSE_TARGET }})
           if [[ -n $es_xpack_security ]];then
             yq -i '(.services.elasticsearch.environment.[] | select(. == "xpack.security.enabled=*")) |= "xpack.security.enabled=false"' ${{ vars.FG_COMPOSE_TARGET }}
