@@ -203,6 +203,10 @@ jobs:
           # yq -i ".services.execute-migrate-all.restart = \"on-failure\"" ${{ vars.FG_COMPOSE_TARGET }}
           # Increase the DB migration query timeout (default is too short for large schemas); override at runtime via DB_QUERY_TIMEOUT_SECONDS
           yq -i '.services.execute-migrate-all.environment.DB_QUERY_TIMEOUT_SECONDS = "${DB_QUERY_TIMEOUT_SECONDS:-3600}"' ${{ vars.FG_COMPOSE_TARGET }}
+          # The JDBC socket read timeout (mysqlSocketTimeout, milliseconds, default 300000) is what actually
+          # fires on long migration DDL ("Read timed out"), so it must be raised alongside the query timeout.
+          # Migration service only: openmetadata-server and ingestion keep the short default to fail fast.
+          yq -i '.services.execute-migrate-all.environment.DB_MYSQL_SOCKET_TIMEOUT = "${DB_MYSQL_SOCKET_TIMEOUT:-3600000}"' ${{ vars.FG_COMPOSE_TARGET }}
 
           # Server
           echo "Updating Server"
